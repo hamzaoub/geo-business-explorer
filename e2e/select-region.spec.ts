@@ -265,3 +265,69 @@ test("reopening a saved OSM search avoids a second API request",async({page})=>{
   await page.locator(".history-entry").getByRole("button",{name:/Refresh/i}).click();
   await expect.poll(()=>calls).toBe(2);
 });
+
+
+test("Explore downloads full licensed results in JSON and filtered CSV without extra API requests", async ({page})=>{
+  let calls=0;
+  await page.route("**/api/search",async route=>{
+    calls++;
+    const businesses=Array.from({length:35},(_,i)=>({
+      id:"geoapify/"+i,name:"Target Company "+i,category:"services",
+      categoryGroup:"services",
+      website:i<10?"https://company"+i+".example.com":null,
+      phone:i<10?"+1-555-0100":null,email:null,
+      address:"Business Street",city:"St. John's",
+      location:{latitude:47.57,longitude:-52.7},
+      source:"geoapify",sourceUrl:"https://www.geoapify.com/places-api/",
+      sources:["geoapify"],confidence:null,
+    }));
+    await route.fulfill({status:200,contentType:"application/json",body:JSON.stringify({
+      businesses,count:35,truncated:false,searchedAt:new Date().toISOString(),
+      provider:"geoapify",sources:[{
+        name:"Geoapify Places",license:"ODbL 1.0",
+        attribution:"Powered by Geoapify · © OpenStreetMap contributors",
+        url:"https://www.geoapify.com/terms-and-conditions/",
+      }],warnings:[],
+    })});
+  });
+  await page.goto("/");
+  const geoapifyAvailable = await page.locator('input[name="source"]').nth(1).isEnabled();
+  if(geoapifyAvailable)await page.locator('input[name="source"]').nth(1).check();
+  const map=page.locator(".leaflet-host");
+  await expect(map).toHaveClass(/leaflet-container/,{timeout:15000});
+  await map.scrollIntoViewIfNeeded();
+  const box=await map.boundingBox();if(!box)throw Error("Missing map");
+  await page.mouse.move(box.x+box.width*.2,box.y+box.height*.2);
+  await page.mouse.down();
+  await page.mouse.move(box.x+box.width*.6,box.y+box.height*.7,{steps:12});
+  await page.mouse.up();
+
+  await expect(page.locator(".results-count")).toHaveText("35");
+  await expect(page.locator(".export-guidance")).toContainText("35");
+  const jsonDownloadPromise = page.waitForEvent("download");
+  await page.getByRole("button",{name:"↓ JSON"}).click();
+  const jsonDownload=await jsonDownloadPromise;
+  expect(jsonDownload.suggestedFilename()).toMatch(/^geoscout-geoapify-.*-35-businesses\.json$/);
+  const {readFile}=await import("node:fs/promises");
+  const json=JSON.parse(await readFile(await jsonDownload.path(),"utf8"));
+  expect(json.count).toBe(35);
+  expect(json.businesses).toHaveLength(35);
+  expect(json.businesses[34].name).toBe("Target Company 34");
+  expect(json.sources[0].name).toBe("Geoapify Places");
+  expect(json.selection.coordinates[0]).toHaveLength(5);
+
+  await page.getByLabel("Filter by website availability").selectOption("with");
+  await expect(page.locator(".export-guidance")).toContainText("10");
+  const csvDownloadPromise=page.waitForEvent("download");
+  await page.getByRole("button",{name:"↓ CSV"}).click();
+  const csvDownload=await csvDownloadPromise;
+  expect(csvDownload.suggestedFilename()).toMatch(/^geoscout-geoapify-.*-10-businesses\.csv$/);
+  const csv=await readFile(await csvDownload.path(),"utf8");
+  expect(csv.charCodeAt(0)).toBe(0xFEFF);
+  expect(csv).toContain('"Target Company 9"');
+  expect(csv).not.toContain('"Target Company 10"');
+  expect(csv).toContain('"website"');
+  expect(csv).toContain('"source_url"');
+  expect(csv.trimEnd().split("\r\n")).toHaveLength(11);
+  expect(calls).toBe(1); // Export must never trigger new billable source requests.
+});
