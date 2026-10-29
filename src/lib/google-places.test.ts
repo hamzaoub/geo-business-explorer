@@ -173,33 +173,92 @@ test("auto discovery performs a finite set of categories and deduplicates by Goo
 });
 
 
-test("IT employer goal filters all 16 Places Table A types, including insurance and logistics",()=>{
-  const it=googleLiveSearchPlan("all",false,0,"it");
-  assert.equal(it.length,1);
-  assert.equal(it[0].types?.length,16);
+
+test("IT employer goal targets all 16 types plus 10 relevant Text Search queries",()=>{
+  const base = googleLiveSearchPlan("all",false,0,"it");
+  assert.equal(base.length,1);
+  assert.equal(base[0].mode,"nearby");
+  if(base[0].mode!=="nearby")throw Error("Expected Nearby");
+  assert.equal(base[0].types?.length,16);
   const plan=googleLiveSearchPlan("all",true,0,"it");
-  assert.equal(plan.length,5);
-  const all=new Set(plan.slice(1).flatMap(item=>item.types||[]));
+  assert.equal(plan.length,15);
+  const nearby=plan.filter(job=>job.mode==="nearby");
+  const text=plan.filter(job=>job.mode==="text");
+  assert.equal(nearby.length,5);
+  assert.equal(text.length,10);
+  const all=new Set(nearby.slice(1).flatMap(item=>item.types||[]));
   assert.equal(all.size,16);
-  for(const name of ["corporate_office","business_center","coworking_space",
+  for(const type of ["corporate_office","business_center","coworking_space",
     "marketing_consultant","research_institute","manufacturer","supplier",
     "bank","insurance_agency","telecommunications_service_provider","university",
     "educational_institution","hospital","shipping_service","real_estate_agency"]) {
-    assert.ok(all.has(name),name);
+    assert.ok(all.has(type),type);
   }
+  assert.ok(text.some(job=>job.textQuery==="software development company"));
+  assert.ok(text.some(job=>job.textQuery==="cybersecurity company"));
 });
-test("IT employer expanded mode makes five grouped paid calls, no repeat IDs",async()=>{
-  const calls:string[][]=[];
-  const fetcher:typeof fetch=async(_input,init)=>{
-    const body=JSON.parse(String(init?.body)) as {includedTypes?:string[]};
-    calls.push(body.includedTypes||[]);
+test("Google IT default expanded budget makes 5 Nearby and one topical Text Search call",async()=>{
+  const urls:string[]=[];
+  const fetcher:typeof fetch=async(input,init)=>{
+    urls.push(String(input));
+    const body=JSON.parse(String(init?.body)) as {includedTypes?:string[]; textQuery?:string};
+    if(urls.length===1) assert.equal(body.includedTypes?.length,16);
     return Response.json({places:[place]});
+  };
+  const data=await discoverGooglePlaces(polygon,bounds,"all",{
+    apiKey:"test",expanded:true,maxRequests:6,goal:"it",fetcher,
+  });
+  assert.equal(data.requestCount,6);
+  assert.equal(data.nearbyRequestCount,5);
+  assert.equal(data.textRequestCount,1);
+  assert.equal(data.textQueryCount,1);
+  assert.equal(urls.filter(url=>url===GOOGLE_NEARBY_URL).length,5);
+  assert.equal(data.businesses.length,1);
+  assert.equal(data.duplicatesRemoved,5);
+  assert.equal(data.targetTypes.length,16);
+});
+test("Google IT auto discovery follows up to two Text Search pages per topic, never unlimited",async()=>{
+  const calls:Array<{url:string;body:{textQuery?:string;pageToken?:string;pageSize?:number;
+    locationRestriction?:{rectangle?:{low:{latitude:number;longitude:number};high:{latitude:number;longitude:number}}}}}>=[];
+  const fetcher:typeof fetch=async(input,init)=>{
+    const body=JSON.parse(String(init?.body));
+    const url=String(input);
+    calls.push({url,body});
+    const token=body.pageToken as string|undefined;
+    const pageNo=token==="page-2"?2:token==="page-3"?3:1;
+    const name=body.textQuery?String(body.textQuery):"nearby";
+    return Response.json({
+      places:[{...place,id:"place-"+name+"-"+pageNo,
+        displayName:{text:"Place "+name+" "+pageNo}}],
+      ...(url.includes("searchText") && pageNo<3 ? {nextPageToken:"page-"+(pageNo+1)} : {}),
+    });
   };
   const data=await discoverGooglePlaces(polygon,bounds,"all",{
     apiKey:"test",expanded:true,maxRequests:0,goal:"it",fetcher,
   });
-  assert.equal(data.requestCount,5);
-  assert.equal(calls.length,5);
-  assert.equal(calls[0].length,16);
-  assert.equal(data.businesses.length,1);
+  assert.equal(data.requestCount,35);
+  assert.equal(data.nearbyRequestCount,5);
+  assert.equal(data.textRequestCount,30);
+  assert.equal(data.textQueryCount,10);
+  assert.equal(data.businesses.length,31); // 1 Nearby + 3 unique pages × 10 topics
+  assert.equal(data.duplicatesRemoved,4);
+  const textCalls=calls.filter(x=>x.url.includes("searchText"));
+  assert.equal(textCalls.length,30);
+  const first=textCalls.find(x=>!x.body.pageToken);
+  assert.deepEqual(first?.body.locationRestriction?.rectangle,{
+    low:{latitude:bounds.south,longitude:bounds.west},
+    high:{latitude:bounds.north,longitude:bounds.east},
+  });
+  assert.equal(first?.body.pageSize,20);
+  assert.ok(textCalls.some(x=>x.body.pageToken==="page-3"));
+});
+test("Google IT never downloads another page without a provider page token",async()=>{
+  let calls=0;
+  const fetcher:typeof fetch=async()=>{calls++;return Response.json({places:[place]});};
+  const result=await discoverGooglePlaces(polygon,bounds,"all",{
+    apiKey:"test",goal:"it",expanded:true,maxRequests:0,fetcher,
+  });
+  assert.equal(calls,15);
+  assert.equal(result.requestCount,15);
+  assert.equal(result.textRequestCount,10);
 });
