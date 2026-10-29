@@ -220,3 +220,28 @@ GEOAPIFY_MAX_PAGES=8
 Max allowed: 12 pages. Google Places results now include a **Find more businesses with Geoapify** button when Geoapify is configured. This starts a new, independent search of the same selected region, not a combination with Google content. Credits accrue on each Geoapify request, generally 1 credit up to 20 places then additional credits per 20 places returned; check your Geoapify account.
 
 Even with more pages, no Places API promises every business in a dense region. For truly large-area inventory building, use a licensed bulk dataset (e.g., Overture Maps Places) or split the target area into smaller bounds. See https://apidocs.geoapify.com/how-to/place-discovery/paginate-place-results/ .
+
+## Google expanded live discovery — opt in, no bulk harvesting
+
+GeoScout now has a **Explore more Google categories** checkbox under **Google Places**. It is
+OFF by default to avoid unexpected bills. When enabled, one user selection performs up to
+six separate category-focused Nearby Search (New) requests, at most two in parallel,
+and shows distinct place IDs in a **transient live list**. Each Nearby Search response still
+contains at most 20 places, so at most 120 total results can be returned before deduplication
+when searching All Businesses. Selecting an individual category issues up to 3 focused requests.
+The actual result count is usually smaller and is never guaranteed.
+
+The service stops scheduling additional requests on a 400, 401, 403 or 429 error.
+The UI displays actual billable API request count and warns about partial coverage.
+The hard cap is `GOOGLE_PLACES_MAX_REQUESTS=6` (1–6). The user must opt in to the extra
+calls for each new session. Each request can incur a Places Pro or Enterprise charge;
+contact fields are still disabled unless `GOOGLE_PLACES_INCLUDE_CONTACTS=true`.
+
+This is **live discovery**, not a business database. The mode does not recursively
+tile regions, crawl Google Maps, cache Google Places data, mix it with OSM, or support
+JSON/CSV export. Searches use a circle covering the drawn rectangle, so some results
+may lie just outside the rectangle. Google Places coordinates are not used for
+point-in-polygon analysis. Google's Maps Platform restrictions still apply:
+https://developers.google.com/maps/documentation/places/web-service/policies
+
+For bulk company databases, use a provider that permits bulk data acquisition and export.

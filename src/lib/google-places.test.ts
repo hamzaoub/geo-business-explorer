@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { googleNearbyRequest, googleSearchCircle, googlePlaceToBusiness,
-  discoverGooglePlaces, GOOGLE_NEARBY_URL, GOOGLE_MAX_RESULTS } from "./google-places";
+  discoverGooglePlaces, googleLiveSearchPlan, GOOGLE_NEARBY_URL, GOOGLE_MAX_RESULTS } from "./google-places";
 import { normalizePolygon } from "./geo";
 import { UpstreamError } from "./overpass";
 
@@ -45,7 +45,7 @@ const place = {
   websiteUri: "https://harbour.example",
   internationalPhoneNumber: "+17095550100",
 };
-test("maps Google places without email and rejects out-of-polygon results", () => {
+test("maps Google places without email and does not use Google's coordinates for polygon clipping", () => {
   const record=googlePlaceToBusiness(place,polygon);
   assert.equal(record?.source,"google_places");
   assert.equal(record?.name,"Harbour Coffee");
@@ -53,7 +53,7 @@ test("maps Google places without email and rejects out-of-polygon results", () =
   assert.equal(record?.phone,"+17095550100");
   assert.equal(record?.email,null);
   assert.equal(record?.categoryGroup,"food");
-  assert.equal(googlePlaceToBusiness({...place,location:{latitude:45,longitude:-52.71}},polygon),null);
+  assert.ok(googlePlaceToBusiness({...place,location:{latitude:45,longitude:-52.71}},polygon));
 });
 
 test("does not request Enterprise phone/website fields unless explicitly enabled",async()=>{
@@ -93,4 +93,44 @@ test("429 quota is reported, not retried or silently ignored",async()=>{
     apiKey:"test-secret",
     fetcher:(async()=>new Response("",{status:429})) as typeof fetch,
   }), (error:unknown)=>error instanceof UpstreamError&&error.status===429);
+});
+
+
+test("expanded live mode is opt-in and bounded to six category queries",()=>{
+  assert.equal(googleLiveSearchPlan("all",false).length,1);
+  assert.equal(googleLiveSearchPlan("all",true).length,6);
+  assert.equal(googleLiveSearchPlan("all",true,3).length,3);
+  assert.equal(googleLiveSearchPlan("food",true).length,3);
+  assert.equal(googleLiveSearchPlan("food",true,999).length,3);
+});
+test("6 billable calls retrieve unique live results, never cache or export them",async()=>{
+  const bodies: Array<{includedTypes?:string[]}>=[];
+  const fetcher:typeof fetch=async(_input,init)=>{
+    const data=JSON.parse(String(init?.body));
+    bodies.push(data);
+    const marker=bodies.length;
+    return Response.json({places:[place,{
+      ...place,id:"Google-"+marker,displayName:{text:"Place "+marker},
+    }]});
+  };
+  const result=await discoverGooglePlaces(polygon,bounds,"all",{
+    apiKey:"test", expanded:true,maxRequests:6,fetcher,
+  });
+  assert.equal(bodies.length,6);
+  assert.equal(result.requestCount,6);
+  assert.equal(result.businesses.length,7);
+  assert.equal(new Set(result.businesses.map(p=>p.id)).size,7);
+  assert.equal(result.truncated,true);
+  assert.ok(bodies.some(x=>x.includedTypes?.includes("restaurant")));
+});
+test("quota stops scheduling extra Google requests",async()=>{
+  let n=0;
+  const fetcher:typeof fetch=async()=>{
+    n++;
+    return new Response("",{status:429});
+  };
+  await assert.rejects(()=>discoverGooglePlaces(polygon,bounds,"all",{
+    apiKey:"test",expanded:true,maxRequests:6,fetcher,
+  }),(e:unknown)=>e instanceof UpstreamError&&e.status===429);
+  assert.ok(n<=2,"only the in-flight concurrent requests may complete after quota failure");
 });

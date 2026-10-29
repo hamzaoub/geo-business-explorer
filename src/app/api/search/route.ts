@@ -88,7 +88,13 @@ export async function POST(request: NextRequest) {
         return { result: await discoverGeoapify(polygon, bounds, category), source: p, fallback: false };
       }
       if (p === "google") {
-        return { result: await discoverGooglePlaces(polygon, bounds, category), source: p, fallback: false };
+        return {
+          result: await discoverGooglePlaces(polygon, bounds, category, {
+            expanded: input.googleExpanded === true,
+          }),
+          source: p,
+          fallback: false,
+        };
       }
       try {
         return { result: await discoverBusinesses(polygon, bounds, category), source: p, fallback: false };
@@ -110,12 +116,16 @@ export async function POST(request: NextRequest) {
     const groups = [];
     const sources: DataAttribution[] = [];
     let truncated = false;
+    let googleRequestCount: number | undefined;
     let firstError: unknown;
     for (let i = 0; i < outcomes.length; i++) {
       const outcome = outcomes[i];
       if (outcome.status === "fulfilled") {
         groups.push(outcome.value.result.businesses);
         truncated = truncated || outcome.value.result.truncated;
+        if (outcome.value.source === "google" && "requestCount" in outcome.value.result) {
+          googleRequestCount = outcome.value.result.requestCount as number;
+        }
         if ("warning" in outcome.value.result && typeof outcome.value.result.warning === "string") {
           warnings.push(outcome.value.result.warning);
         }
@@ -142,9 +152,10 @@ export async function POST(request: NextRequest) {
     // or Overture and never cached by the business search implementation.
     if (provider === "google") {
       warnings.push(
-        "Google Nearby Search has a 20-place limit per request, with no pagination. " +
-        "These live results are not a complete business inventory and cannot be exported. " +
-        "For deeper, exportable discovery, select Geoapify Places or Overture.",
+        "Google returns at most 20 places per Nearby Search request. " +
+        "Opt-in multi-category live lookups can show more distinct places, but cannot enumerate " +
+        "all businesses. The search circle may extend beyond your drawn rectangle. " +
+        "Google results are not stored or exportable.",
       );
     }
     const businesses = provider === "google" ? groups.flat() : mergeBusinesses(groups);
@@ -156,6 +167,9 @@ export async function POST(request: NextRequest) {
       provider,
       sources,
       warnings,
+      ...(provider === "google" && googleRequestCount
+        ? { requestCount: googleRequestCount }
+        : {}),
     };
     return NextResponse.json(payload, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

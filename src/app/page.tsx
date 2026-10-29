@@ -26,6 +26,7 @@ export default function ExplorerPage() {
   const [overtureAvailable, setOvertureAvailable] = useState(false);
   const [geoapifyAvailable, setGeoapifyAvailable] = useState(false);
   const [googleAvailable, setGoogleAvailable] = useState(false);
+  const [googleExpanded, setGoogleExpanded] = useState(false);
   const [geocoderAvailable, setGeocoderAvailable] = useState(false);
   const [placeQuery, setPlaceQuery] = useState("");
   const [locating, setLocating] = useState(false);
@@ -102,7 +103,10 @@ export default function ExplorerPage() {
       const response = await fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ polygon: selectedArea, category, provider: selectedProvider }),
+        body: JSON.stringify({
+          polygon: selectedArea, category, provider: selectedProvider,
+          googleExpanded: selectedProvider === "google" && googleExpanded,
+        }),
         signal: controller.signal,
       });
       const json: unknown = await response.json();
@@ -240,6 +244,22 @@ export default function ExplorerPage() {
                   checked={provider === "google"} onChange={() => selectProvider("google")} />
                 Google Places <span>{googleAvailable ? "Connected · live view" : "API key needed"}</span>
               </label>
+              {provider === "google" && (
+                <label className="google-expand-toggle">
+                  <input type="checkbox" aria-label="Expanded Google live search"
+                    checked={googleExpanded} onChange={e => {
+                      cancelSearch();
+                      setGoogleExpanded(e.target.checked);
+                      setResult(null);
+                      setError(null);
+                    }} />
+                  <span>
+                    <strong>Explore more Google categories</strong>
+                    <small>Opt in: up to 6 billable Places requests per selection;
+                      up to 120 results before duplicates. No bulk export.</small>
+                  </span>
+                </label>
+              )}
               <label className="source-option">
                 <input type="radio" name="source" disabled={!overtureAvailable}
                   checked={provider === "overture"} onChange={() => selectProvider("overture")} />
@@ -353,7 +373,7 @@ export default function ExplorerPage() {
             {result?.truncated && (
               <div className="warning-notice">
                 {result.provider === "google"
-                  ? "Google returned up to 20 ranked places; other businesses may exist. Use Geoapify for broader exportable discovery."
+                  ? "Google search results are source-limited, even with multiple category queries. Nearby Search cannot enumerate all businesses."
                   : "The provider returned only a partial result. Use a smaller area or increase the Geoapify page allowance when appropriate."}
               </div>
             )}
@@ -361,7 +381,10 @@ export default function ExplorerPage() {
             {result?.provider === "google" && (
               <div className="google-places-notice">
                 <strong className="google-maps-attribution" translate="no">Google Maps</strong>
-                <span>Live Google Places results · maximum 20 per query · no bulk collection or JSON/CSV export.
+                <span>Live Google Places results · up to 20 per request · no bulk collection or JSON/CSV export.
+                  {result.requestCount && (
+                    <strong className="google-call-count"> {result.requestCount} paid API request{result.requestCount === 1 ? "" : "s"} made · {result.count} unique places shown.</strong>
+                  )}
                   <a href="https://developers.google.com/maps/documentation/places/web-service/policies"
                     target="_blank" rel="noopener noreferrer"> View usage policies ↗</a>
                   {geoapifyAvailable && (

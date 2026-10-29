@@ -36,4 +36,6 @@ export interface SearchResponse {
   provider: SearchProvider;
   sources: DataAttribution[];
   warnings: string[];
+  /** Only for user-initiated Google live lookups; each call may incur charges. */
+  requestCount?: number;
 }
