@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { buildJsonPayload, exportCsv, exportJson } from "@/lib/export";
 import type { Business, Category, Position, SearchGoal, SearchProvider, SearchResponse, WebsiteFilter } from "@/lib/types";
 import { IT_EMPLOYER_TARGETS, IT_EMPLOYER_TYPES } from "@/lib/target-presets";
+import { parseSavedBusinesses } from "@/lib/saved-json";
 import { readSearchHistory, recordSearchHistory, reusableSnapshot,
   removeSearchHistory, type SearchHistoryEntry, type SearchIdentity } from "@/lib/search-history";
 
@@ -50,6 +51,13 @@ export default function ExplorerPage() {
   const [historyNotice, setHistoryNotice] = useState<string | null>(null);
   const [textFilter, setTextFilter] = useState("");
   const [websiteFilter, setWebsiteFilter] = useState<WebsiteFilter>("all");
+  const [phoneFilter, setPhoneFilter] = useState<WebsiteFilter>("all");
+  const [emailFilter, setEmailFilter] = useState<WebsiteFilter>("all");
+  const [groupFilter, setGroupFilter] = useState("all");
+  const [savedFileName, setSavedFileName] = useState<string | null>(null);
+  const [savedLoading, setSavedLoading] = useState(false);
+  const [savedFileError, setSavedFileError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [viewMode, setViewMode] = useState<"table" | "json">("json");
@@ -90,9 +98,20 @@ export default function ExplorerPage() {
     ].some((value) => value?.toLocaleLowerCase().includes(text));
     const matchesWebsite = websiteFilter === "all" ||
       (websiteFilter === "with" ? Boolean(business.website) : !business.website);
-    return matchesText && matchesWebsite;
-  }), [businesses, textFilter, websiteFilter]);
+    const matchesPhone = phoneFilter === "all" ||
+      (phoneFilter === "with" ? Boolean(business.phone) : !business.phone);
+    const matchesEmail = emailFilter === "all" ||
+      (emailFilter === "with" ? Boolean(business.email) : !business.email);
+    return matchesText && matchesWebsite && matchesPhone && matchesEmail &&
+      (groupFilter === "all" || business.categoryGroup === groupFilter);
+  }), [businesses, textFilter, websiteFilter, phoneFilter, emailFilter, groupFilter]);
 
+  const groups = useMemo(() => [...new Set(businesses.map(b => b.categoryGroup))].sort(),
+    [businesses]);
+  const selectedBusiness = useMemo(
+    () => businesses.find(b => b.id === selectedBusinessId) ?? null,
+    [businesses,selectedBusinessId],
+  );
   const websites = businesses.filter((b) => Boolean(b.website)).length;
   const phones = businesses.filter((b) => Boolean(b.phone)).length;
   const pageSize = 25;
@@ -126,6 +145,11 @@ export default function ExplorerPage() {
     setSelectedBusinessId(null);
     setHistoryPreview(null);
     setHistoryNotice(null);
+    setSavedFileName(null);
+    setSavedFileError(null);
+    setGroupFilter("all");
+    setPhoneFilter("all");
+    setEmailFilter("all");
     if (!refresh) {
       const cached = reusableSnapshot(identity);
       if (cached) {
@@ -191,6 +215,11 @@ export default function ExplorerPage() {
     setError(null);
     setHistoryPreview(null);
     setHistoryNotice(null);
+    setSavedFileName(null);
+    setSavedFileError(null);
+    setGroupFilter("all");
+    setPhoneFilter("all");
+    setEmailFilter("all");
     setTextFilter("");
     setWebsiteFilter("all");
     setPage(1);
@@ -231,6 +260,57 @@ export default function ExplorerPage() {
     if (next === "it") {
       setCategory("all");
       setProvider("google");
+    }
+  }
+
+  async function loadSavedBusinessJson(file?: File) {
+    cancelSearch();
+    setSavedLoading(true);
+    setSavedFileError(null);
+    setHistoryPreview(null);
+    setHistoryNotice(null);
+    try {
+      let content: unknown;
+      if (file) {
+        if (file.size > 25 * 1024 * 1024) {
+          throw new Error("The file is larger than 25 MB. Choose a smaller file.");
+        }
+        content = JSON.parse(await file.text());
+      } else {
+        const response = await fetch("/websites_combined.json", {cache:"no-store"});
+        if (!response.ok) {
+          if (response.status === 404) throw new Error(
+            "websites_combined.json was not found in the public folder of the running app. " +
+            "You can choose the JSON file directly from your computer instead.",
+          );
+          throw new Error("Unable to load /websites_combined.json (HTTP " + response.status + ").");
+        }
+        const text = await response.text();
+        if (text.length > 25 * 1024 * 1024) throw new Error("JSON file exceeds the 25 MB viewer limit.");
+        content = JSON.parse(text);
+      }
+      const imported = parseSavedBusinesses(content);
+      setResult(imported.response);
+      setSavedFileName(file?.name || "websites_combined.json");
+      setPolygon(null);
+      setSelectedBusinessId(null);
+      setTextFilter("");
+      setWebsiteFilter("all");
+      setPhoneFilter("all");
+      setEmailFilter("all");
+      setGroupFilter("all");
+      setPage(1);
+      setViewMode("table");
+      // Do not add imported Google Places content to local search-history snapshots.
+      window.setTimeout(
+        () => resultsRef.current?.scrollIntoView({behavior:"smooth",block:"start"}),80,
+      );
+    } catch (cause) {
+      setSavedFileError(cause instanceof SyntaxError
+        ? "Invalid JSON syntax. Check the file format."
+        : cause instanceof Error ? cause.message : "Unable to read the JSON file.");
+    } finally {
+      setSavedLoading(false);
     }
   }
 
@@ -303,6 +383,27 @@ export default function ExplorerPage() {
             <p>Turn any area on the map into a list of real, publicly mapped businesses.</p>
           </div>
 
+          <div className="saved-json-import">
+            <div className="saved-json-heading"><strong>◫ Saved JSON explorer</strong>
+              <span>No Google API calls</span></div>
+            <p>Open your <code>websites_combined.json</code> file, then filter and inspect individual businesses.</p>
+            <div className="saved-json-buttons">
+              <button type="button" disabled={savedLoading}
+                onClick={() => void loadSavedBusinessJson()}>
+                {savedLoading ? "Loading…" : "Open websites_combined.json"}
+              </button>
+              <button type="button" disabled={savedLoading}
+                onClick={() => fileInputRef.current?.click()}>Choose JSON file</button>
+            </div>
+            <input ref={fileInputRef} type="file" accept=".json,application/json"
+              aria-label="Choose saved businesses JSON file"
+              style={{display:"none"}} onChange={e => {
+                const file=e.target.files?.[0];
+                if (file) void loadSavedBusinessJson(file);
+                e.target.value="";
+              }}/>
+            {savedFileError && <p className="saved-json-error" role="alert">{savedFileError}</p>}
+          </div>
           <div className="steps">
             <div className="step-heading"><span className="step-number">01</span><strong>Select an area</strong></div>
             <p><strong>Drag directly on the map</strong> to select your area. The search starts when you release the mouse. Use Move map when you want to navigate.</p>
@@ -517,6 +618,10 @@ export default function ExplorerPage() {
               <div>
                 <span className="section-kicker">YOUR DISCOVERY LIST</span>
                 <h2>Business results <span className="results-count">{businesses.length}</span></h2>
+                {savedFileName && <p className="saved-file-banner">◫ Viewing: {savedFileName}
+                  {" · "}Loaded locally · {filtered.length.toLocaleString()} match filters
+                  {" · "}No Places API requests
+                </p>}
               </div>
               <div className="export-actions" aria-label="Download search results">
                 <button type="button" className="outline-button" disabled={!result || !filtered.length || result.provider === "google"}
@@ -569,6 +674,28 @@ export default function ExplorerPage() {
                   <option value="with">Has website</option>
                   <option value="without">No website listed</option>
                 </select>
+                <select className="filter-select" aria-label="Filter by category group"
+                  value={groupFilter} onChange={e => {setGroupFilter(e.target.value);setPage(1);}}>
+                  <option value="all">All category groups</option>
+                  {groups.map(group => <option key={group} value={group}>{group}</option>)}
+                </select>
+                <select className="filter-select" aria-label="Filter by phone availability"
+                  value={phoneFilter} onChange={e => {setPhoneFilter(e.target.value as WebsiteFilter);setPage(1);}}>
+                  <option value="all">All phones</option>
+                  <option value="with">Has phone</option>
+                  <option value="without">No phone</option>
+                </select>
+                <select className="filter-select" aria-label="Filter by email availability"
+                  value={emailFilter} onChange={e => {setEmailFilter(e.target.value as WebsiteFilter);setPage(1);}}>
+                  <option value="all">All emails</option>
+                  <option value="with">Has email</option>
+                  <option value="without">No email</option>
+                </select>
+                <button type="button" className="outline-button filter-reset"
+                  onClick={() => {
+                    setTextFilter("");setWebsiteFilter("all");setPhoneFilter("all");
+                    setEmailFilter("all");setGroupFilter("all");setPage(1);
+                  }}>Reset filters</button>
               </div>
             )}
 
@@ -668,7 +795,7 @@ export default function ExplorerPage() {
             ) : filtered.length === 0 ? (
               <div className="empty-state">
                 <strong>No matching businesses</strong>
-                <p>Try a different category, website filter, or selected area.</p>
+                <p>Try adjusting the category group, website, phone or email filters.</p>
               </div>
             ) : result.provider !== "google" && viewMode === "json" ? (
               <div className="json-pane">
@@ -707,6 +834,33 @@ export default function ExplorerPage() {
                     </tbody>
                   </table>
                 </div>
+                {selectedBusiness && (
+                  <section className="business-detail" aria-label="Selected business details">
+                    <div className="business-detail-heading">
+                      <div><span>SELECTED BUSINESS</span><h3>{selectedBusiness.name}</h3></div>
+                      <button type="button" aria-label="Close business details"
+                        onClick={() => setSelectedBusinessId(null)}>×</button>
+                    </div>
+                    <dl>
+                      <div><dt>Category</dt><dd>{selectedBusiness.category}</dd></div>
+                      <div><dt>Category group</dt><dd>{selectedBusiness.categoryGroup}</dd></div>
+                      <div><dt>Address</dt><dd>{selectedBusiness.address || "Not listed"}</dd></div>
+                      <div><dt>City</dt><dd>{selectedBusiness.city || "Not listed"}</dd></div>
+                      <div><dt>Phone</dt><dd>{selectedBusiness.phone
+                        ? <a href={"tel:" + selectedBusiness.phone.replace(/[^+0-9]/g,"")}>
+                          {selectedBusiness.phone}</a> : "Not listed"}</dd></div>
+                      <div><dt>Email</dt><dd>{selectedBusiness.email
+                        ? <a href={"mailto:" + selectedBusiness.email}>{selectedBusiness.email}</a>
+                        : "Not listed"}</dd></div>
+                      <div><dt>Website</dt><dd>{selectedBusiness.website
+                        ? <a href={selectedBusiness.website} target="_blank" rel="noopener noreferrer">
+                          {selectedBusiness.website} ↗</a> : "Not listed"}</dd></div>
+                      <div><dt>Source</dt><dd>
+                        <a href={selectedBusiness.sourceUrl} target="_blank" rel="noopener noreferrer">
+                          {selectedBusiness.source.replaceAll("_"," ")} ↗</a></dd></div>
+                    </dl>
+                  </section>
+                )}
                 <div className="pagination">
                   <span>Showing {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, filtered.length)} of {filtered.length}</span>
                   <div>
