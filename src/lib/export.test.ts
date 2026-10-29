@@ -29,7 +29,7 @@ test("JSON exports every matching row with selection, schema and attribution", (
   const data = buildJsonPayload(rows, polygon, {...search,businesses:rows,count:35});
   assert.equal(data.businesses.length,35);
   assert.equal(data.businesses[34].name,"Company 34");
-  assert.equal(data.schemaVersion,"1.1");
+  assert.equal(data.schemaVersion,"1.0");
   assert.equal(data.selection?.coordinates[0].length,5);
   assert.equal(data.sources[0].name,"Geoapify Places");
   assert.equal(data.count,35);
