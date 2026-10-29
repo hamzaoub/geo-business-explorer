@@ -156,3 +156,16 @@ The repository includes a GitHub Actions workflow that runs TypeScript checks, u
 - A browser extension's `Could not establish connection. Receiving end does not exist` is unrelated to GeoScout.
 - Favicon is included in `public/favicon.svg`.
 - The search may fail because the public Overpass instance is overloaded; errors are shown on the map and results panel.
+
+### Browser interaction regression tests
+
+To test the real browser dragging interaction locally (requires Chromium):
+
+~~~bash
+npm install
+npm run build
+npx playwright install chromium
+npm run test:e2e
+~~~
+
+GitHub Actions runs the same browser tests after the production build. The tests mock the business-search response to verify region-selection behavior without using public Overpass quotas; **live data coverage still needs a separate integration test**.
