@@ -44,7 +44,7 @@ test("drag anywhere over the map to select and automatically see JSON results", 
   await page.goto("/");
   const canvas = page.locator(".leaflet-host");
   await expect(canvas).toBeVisible();
-  await expect(page.locator(".leaflet-map-pane")).toBeVisible({ timeout: 15_000 });
+  await expect(canvas).toHaveClass(/leaflet-container/, { timeout: 15_000 });
   await expect(page.getByRole("button", { name: /Select area/i })).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".leaflet-draw-toolbar")).toHaveCount(0);
 
@@ -80,7 +80,7 @@ test("move-map mode does not start a selection", async ({ page }) => {
   });
   await page.goto("/");
   const canvas = page.locator(".leaflet-host");
-  await expect(page.locator(".leaflet-map-pane")).toBeVisible({ timeout: 15_000 });
+  await expect(canvas).toHaveClass(/leaflet-container/, { timeout: 15_000 });
   await page.getByRole("button", { name: /Move map/i }).click();
   await expect(page.getByRole("button", { name: /Move map/i })).toHaveAttribute("aria-pressed", "true");
   const box = await canvas.boundingBox();
