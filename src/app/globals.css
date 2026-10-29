@@ -285,3 +285,37 @@ a:hover { text-decoration: underline; }
   margin-bottom:12px; }
 .history-id-links a { padding:4px 6px; border:1px solid #dce6ee; border-radius:6px;
   background:white; font-size:10px; }
+
+/* Locally opened JSON: exploration UI, not a Places API collection mechanism. */
+.saved-json-import { padding:15px 16px; border-bottom:1px solid var(--line);
+  background:linear-gradient(130deg,#effaf6,#f5f9ff); }
+.saved-json-heading { display:flex; align-items:center; justify-content:space-between;
+  gap:8px; font-size:12px; }
+.saved-json-heading span { font-size:10px; color:#327862; background:#d7f5e8;
+  padding:4px 7px; border-radius:7px; }
+.saved-json-import p { font-size:11px; line-height:1.55; color:#536c67; margin:9px 0; }
+.saved-json-import code { white-space:normal; overflow-wrap:anywhere; font-size:10px; }
+.saved-json-buttons { display:grid; gap:7px; }
+.saved-json-buttons button { border:1px solid #b9d7c9; background:white;
+  color:#1e6554; border-radius:9px; padding:9px 10px; font-size:11px;
+  font-weight:700; text-align:left; }
+.saved-json-buttons button:first-child { background:#0e886c; color:#fff; border-color:#0e886c; }
+.saved-json-error { color:#a72828!important; overflow-wrap:anywhere; }
+.saved-file-banner { margin:6px 0 0; font-size:11px; color:#22765e; }
+.filter-row { flex-wrap:wrap; }
+.filter-row .filter-select { min-width:135px; }
+.filter-reset { font-size:11px; padding:8px 12px; }
+.business-table tbody tr { cursor:pointer; }
+.business-detail { background:#f6fbf9; border:1px solid #c8e7dc;
+  border-radius:12px; margin:16px 0; padding:18px; }
+.business-detail-heading { display:flex; align-items:start; justify-content:space-between; }
+.business-detail-heading span { font-size:10px; color:#518b7a; letter-spacing:.06em; }
+.business-detail-heading h3 { font-size:18px; margin:6px 0 16px; overflow-wrap:anywhere; }
+.business-detail-heading button { border:0; background:transparent; font-size:23px;
+  color:#678c7b; }
+.business-detail dl { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+  gap:10px; margin:0; }
+.business-detail dl>div { min-width:0; background:white; border:1px solid #e0efea;
+  border-radius:9px; padding:10px; }
+.business-detail dt { font-size:10px; text-transform:uppercase; color:#709187; }
+.business-detail dd { font-size:12px; margin:5px 0 0; overflow-wrap:anywhere; }
