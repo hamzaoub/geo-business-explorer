@@ -268,6 +268,10 @@ test("reopening a saved OSM search avoids a second API request",async({page})=>{
 
 
 test("Explore downloads full licensed results in JSON and filtered CSV without extra API requests", async ({page})=>{
+  await page.route("**/api/capabilities", async route=>route.fulfill({
+    status:200,contentType:"application/json",
+    body:JSON.stringify({providers:{osm:true,geoapify:true,google:false,overture:false},geocoder:false}),
+  }));
   let calls=0;
   await page.route("**/api/search",async route=>{
     calls++;
