@@ -39,4 +39,11 @@ export interface SearchResponse {
   warnings: string[];
   /** Only for user-initiated Google live lookups; each call may incur charges. */
   requestCount?: number;
+  googleDiagnostics?: {
+    nearbyRequests: number;
+    textRequests: number;
+    textQueries: number;
+    duplicatesRemoved: number;
+    targetTypes: string[];
+  };
 }

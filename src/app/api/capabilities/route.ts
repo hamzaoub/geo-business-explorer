@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { googleLiveSearchPlan, GOOGLE_DEFAULT_MAX_REQUESTS } from "@/lib/google-places";
+import { googleLiveSearchPlan, googleRequestBudget, GOOGLE_DEFAULT_MAX_REQUESTS } from "@/lib/google-places";
 
 export const runtime = "nodejs";
 
@@ -11,6 +11,7 @@ export async function GET() {
       google: {
         includeContacts: process.env.GOOGLE_PLACES_INCLUDE_CONTACTS === "true",
         requestBudget: googleLiveSearchPlan("all",true,maxRequests).length,
+        itRequestBudget: googleRequestBudget("all","it",true,maxRequests),
         automatic: maxRequests === 0,
       } },
     { headers: { "Cache-Control": "no-store" } },

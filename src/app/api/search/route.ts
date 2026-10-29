@@ -123,6 +123,7 @@ export async function POST(request: NextRequest) {
     const sources: DataAttribution[] = [];
     let truncated = false;
     let googleRequestCount: number | undefined;
+    let googleDiagnostics: SearchResponse["googleDiagnostics"];
     let firstError: unknown;
     for (let i = 0; i < outcomes.length; i++) {
       const outcome = outcomes[i];
@@ -131,6 +132,16 @@ export async function POST(request: NextRequest) {
         truncated = truncated || outcome.value.result.truncated;
         if (outcome.value.source === "google" && "requestCount" in outcome.value.result) {
           googleRequestCount = outcome.value.result.requestCount as number;
+          const detail = outcome.value.result;
+          if ("nearbyRequestCount" in detail && typeof detail.nearbyRequestCount === "number") {
+            googleDiagnostics = {
+              nearbyRequests: detail.nearbyRequestCount,
+              textRequests: detail.textRequestCount,
+              textQueries: detail.textQueryCount,
+              duplicatesRemoved: detail.duplicatesRemoved,
+              targetTypes: detail.targetTypes,
+            };
+          }
         }
         if ("warning" in outcome.value.result && typeof outcome.value.result.warning === "string") {
           warnings.push(outcome.value.result.warning);
@@ -158,10 +169,9 @@ export async function POST(request: NextRequest) {
     // or Overture and never cached by the business search implementation.
     if (provider === "google") {
       warnings.push(
-        "Google returns at most 20 places per Nearby Search request. " +
-        "Opt-in multi-category live lookups can show more distinct places, but cannot enumerate " +
-        "all businesses. The search circle may extend beyond your drawn rectangle. " +
-        "Google results are not stored or exportable.",
+        "IT preset: goal=it selects Google's 16 target business types; category=all is the general UI category. " +
+        "Expanded IT search combines Nearby with topical Text Search (up to 60 per query). " +
+        "Results are not exhaustive, may include nearby places, and cannot be exported.",
       );
     }
     const businesses = provider === "google" ? groups.flat() : mergeBusinesses(groups);
@@ -173,6 +183,7 @@ export async function POST(request: NextRequest) {
       provider,
       sources,
       warnings,
+      ...(provider === "google" && googleDiagnostics ? {googleDiagnostics} : {}),
       ...(provider === "google" && googleRequestCount
         ? { requestCount: googleRequestCount }
         : {}),

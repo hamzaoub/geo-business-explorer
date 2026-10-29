@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { buildJsonPayload, exportCsv, exportJson } from "@/lib/export";
 import type { Business, Category, Position, SearchGoal, SearchProvider, SearchResponse, WebsiteFilter } from "@/lib/types";
-import { IT_EMPLOYER_TARGETS } from "@/lib/target-presets";
+import { IT_EMPLOYER_TARGETS, IT_EMPLOYER_TYPES } from "@/lib/target-presets";
 import { readSearchHistory, recordSearchHistory, reusableSnapshot,
   removeSearchHistory, type SearchHistoryEntry, type SearchIdentity } from "@/lib/search-history";
 
@@ -33,6 +33,7 @@ export default function ExplorerPage() {
   const [googleExpanded, setGoogleExpanded] = useState(false);
   const [googleContactsEnabled, setGoogleContactsEnabled] = useState(false);
   const [googleRequestBudget, setGoogleRequestBudget] = useState(6);
+  const [googleItRequestBudget, setGoogleItRequestBudget] = useState(6);
   const [googleAutomatic, setGoogleAutomatic] = useState(false);
   const [geocoderAvailable, setGeocoderAvailable] = useState(false);
   const [placeQuery, setPlaceQuery] = useState("");
@@ -63,7 +64,7 @@ export default function ExplorerPage() {
       .then((response) => response.json())
       .then((data: {
         providers?: { overture?: boolean; geoapify?: boolean; google?: boolean };
-        google?: { includeContacts?: boolean; requestBudget?: number; automatic?: boolean };
+        google?: { includeContacts?: boolean; requestBudget?: number; itRequestBudget?: number; automatic?: boolean };
       }) => {
         if (!cancelled) {
           setOvertureAvailable(Boolean(data.providers?.overture));
@@ -71,6 +72,7 @@ export default function ExplorerPage() {
           setGoogleAvailable(Boolean(data.providers?.google));
           setGoogleContactsEnabled(Boolean(data.google?.includeContacts));
           if (data.google?.requestBudget) setGoogleRequestBudget(data.google.requestBudget);
+          if (data.google?.itRequestBudget) setGoogleItRequestBudget(data.google.itRequestBudget);
           setGoogleAutomatic(Boolean(data.google?.automatic));
           if (data.providers?.geoapify) setProvider("geoapify");
           setGeocoderAvailable(Boolean((data as { geocoder?: boolean }).geocoder));
@@ -148,6 +150,7 @@ export default function ExplorerPage() {
         body: JSON.stringify({
           polygon: selectedArea, category: selectedCategory, provider: selectedProvider,
           goal: selectedGoal,
+          targetTypes: selectedGoal === "it" ? IT_EMPLOYER_TYPES : [],
           googleExpanded: selectedProvider === "google" && expanded,
         }),
         signal: controller.signal,
@@ -326,7 +329,9 @@ export default function ExplorerPage() {
             {goal === "it" && (
               <div className="target-preview">
                 <strong>{IT_EMPLOYER_TARGETS.length} IT employer target types</strong>
-                <p>Potential employers, not verified job vacancies.</p>
+                <p>Potential employers, not verified job vacancies.
+                  <strong> goal=it</strong> activates these targets; <strong>category=all</strong>
+                  means no generic industry restriction.</p>
                 <div className="target-chip-list">
                   {IT_EMPLOYER_TARGETS.map(item => (
                     <span key={item.type} title={item.type}>{item.label}</span>
@@ -384,11 +389,12 @@ export default function ExplorerPage() {
                       setError(null);
                     }} />
                   <span>
-                    <strong>{goal === "it" ? "Search each IT employer group" : "Explore more Google categories"}</strong>
+                    <strong>{goal === "it" ? "Nearby + tech company text search" : "Explore more Google categories"}</strong>
                     <small>Opt in: {googleAutomatic ? "auto mode" : "configured budget"} ·
-                      up to {goal === "it" ? Math.min(googleRequestBudget, 5) : googleRequestBudget}
-                      paid Google Places requests (up to 20 each).
-                      No unlimited search, and no bulk export.</small>
+                      up to {goal === "it" ? googleItRequestBudget : googleRequestBudget}
+                      paid Google Places requests.
+                      IT discovery uses 16 place types plus 10 tech-focused Text Search queries.
+                      No guaranteed complete coverage or bulk export.</small>
                   </span>
                 </label>
               )}
@@ -588,7 +594,18 @@ export default function ExplorerPage() {
                     {" "}Google Places does not provide business email addresses. City is taken from Google's structured locality when supplied.
                   </strong>
                   {result.requestCount && (
-                    <strong className="google-call-count"> {result.requestCount} paid API request{result.requestCount === 1 ? "" : "s"} made · {result.count} unique places shown.</strong>
+                    <strong className="google-call-count">
+                      {result.requestCount} Google API requests · {result.count} unique places shown.
+                      {result.googleDiagnostics && (
+                        <> {result.googleDiagnostics.nearbyRequests} Nearby +
+                          {" "}{result.googleDiagnostics.textRequests} Text Search
+                          across {result.googleDiagnostics.textQueries} targeted queries;
+                          {" "}{result.googleDiagnostics.duplicatesRemoved} duplicates removed.
+                          {result.googleDiagnostics.targetTypes.length > 0 &&
+                            <> {result.googleDiagnostics.targetTypes.length} IT business types targeted.</>}
+                        </>
+                      )}
+                    </strong>
                   )}
                   <a href="https://developers.google.com/maps/documentation/places/web-service/policies"
                     target="_blank" rel="noopener noreferrer"> View usage policies ↗</a>
