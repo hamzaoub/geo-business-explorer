@@ -1,6 +1,7 @@
 import type { Bounds } from "./geo";
 import { UpstreamError } from "./overpass";
-import type { Business, Category, Position } from "./types";
+import type { Business, Category, Position, SearchGoal } from "./types";
+import { IT_EMPLOYER_TYPES } from "./target-presets";
 
 // Google Places API (New): bounded, user-opted-in multi-category live discovery.
 // No grid harvesting, prefetch, persistence, cross-provider mixing or export.
@@ -179,7 +180,24 @@ export function googleLiveSearchPlan(
   category: Category,
   expanded = false,
   maxRequests = GOOGLE_DEFAULT_MAX_REQUESTS,
+  goal: SearchGoal = "general",
 ): GoogleRequestPlan[] {
+  if (goal === "it") {
+    const base: GoogleRequestPlan = { category: "all", types: IT_EMPLOYER_TYPES, label: "All IT employer targets" };
+    if (!expanded) return [base];
+    // The exact 16 requested Google business types are searched in five
+    // distinct, opt-in Nearby requests. All 16 are covered even at default budget 6.
+    const groups = Array.from({length: Math.ceil(IT_EMPLOYER_TYPES.length / 4)}, (_,i)=>({
+      category: "all" as Category,
+      types: IT_EMPLOYER_TYPES.slice(i*4,i*4+4),
+      label: "IT employers group " + (i+1),
+    }));
+    const plan = [base,...groups];
+    const limit = maxRequests === 0 ? plan.length : Number.isFinite(maxRequests)
+      ? Math.max(1,Math.min(GOOGLE_MAX_LIVE_REQUESTS,Math.floor(maxRequests)))
+      : GOOGLE_DEFAULT_MAX_REQUESTS;
+    return plan.slice(0,limit);
+  }
   const base: GoogleRequestPlan = { category, label: "Nearby places" };
   if (!expanded) return [base];
   const intents = category === "all"
@@ -210,6 +228,7 @@ export async function discoverGooglePlaces(
     fetcher?: typeof fetch;
     expanded?: boolean;
     maxRequests?: number;
+    goal?: SearchGoal;
   } = {},
 ): Promise<GoogleLiveResult> {
   const key = options.apiKey ?? process.env.GOOGLE_PLACES_API_KEY?.trim();
@@ -218,7 +237,7 @@ export async function discoverGooglePlaces(
     process.env.GOOGLE_PLACES_INCLUDE_CONTACTS === "true";
   const requestedMax = options.maxRequests ??
     Number(process.env.GOOGLE_PLACES_MAX_REQUESTS ?? GOOGLE_DEFAULT_MAX_REQUESTS);
-  const plan = googleLiveSearchPlan(category, options.expanded === true, requestedMax);
+  const plan = googleLiveSearchPlan(category, options.expanded === true, requestedMax, options.goal);
   const fetcher = options.fetcher ?? fetch;
   const found = new Map<string, Business>();
   let cursor = 0;
