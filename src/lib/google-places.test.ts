@@ -177,16 +177,17 @@ test("auto discovery performs a finite set of categories and deduplicates by Goo
 test("IT employer goal targets all 16 types plus 10 relevant Text Search queries",()=>{
   const base = googleLiveSearchPlan("all",false,0,"it");
   assert.equal(base.length,1);
-  assert.equal(base[0].mode,"nearby");
-  if(base[0].mode!=="nearby")throw Error("Expected Nearby");
-  assert.equal(base[0].types?.length,16);
+  const first=base[0];
+  assert.equal(first.mode,"nearby");
+  if(first.mode!=="nearby")throw Error("Expected Nearby");
+  assert.equal(first.types?.length,16);
   const plan=googleLiveSearchPlan("all",true,0,"it");
   assert.equal(plan.length,15);
   const nearby=plan.filter(job=>job.mode==="nearby");
   const text=plan.filter(job=>job.mode==="text");
   assert.equal(nearby.length,5);
   assert.equal(text.length,10);
-  const all=new Set(nearby.slice(1).flatMap(item=>item.types||[]));
+  const all=new Set(nearby.slice(1).flatMap(item=>item.mode==="nearby" ? item.types||[] : []));
   assert.equal(all.size,16);
   for(const type of ["corporate_office","business_center","coworking_space",
     "marketing_consultant","research_institute","manufacturer","supplier",
