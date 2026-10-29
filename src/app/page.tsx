@@ -429,6 +429,11 @@ export default function ExplorerPage() {
               </>
             )}
             <div className="license-note">
+              {result?.sources.some((s) => s.name === "Geoapify Places") && (
+                <><a href="https://www.geoapify.com/" target="_blank" rel="noopener noreferrer">
+                  Powered by Geoapify
+                </a>{" · "}</>
+              )}
               {result ? result.sources.map(s => s.attribution).join(" · ") : "© OpenStreetMap contributors"}.
               {" "}Source licenses and attribution apply to exports; combined databases may carry ODbL obligations.
               {" "}Search results are not exhaustive, and contact details may be outdated.
