@@ -40,7 +40,7 @@ export function buildJsonPayload(
 ) {
   assertExportable(businesses, search);
   return {
-    schemaVersion: "1.1",
+    schemaVersion: "1.0",
     exportedAt: new Date().toISOString(),
     searchedAt: search.searchedAt,
     count: businesses.length,
