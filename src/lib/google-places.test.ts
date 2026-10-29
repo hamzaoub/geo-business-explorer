@@ -171,3 +171,35 @@ test("auto discovery performs a finite set of categories and deduplicates by Goo
   assert.equal(result.businesses.length,1);
   assert.equal(result.truncated,true);
 });
+
+
+test("IT employer goal filters all 16 Places Table A types, including insurance and logistics",()=>{
+  const it=googleLiveSearchPlan("all",false,0,"it");
+  assert.equal(it.length,1);
+  assert.equal(it[0].types?.length,16);
+  const plan=googleLiveSearchPlan("all",true,0,"it");
+  assert.equal(plan.length,5);
+  const all=new Set(plan.slice(1).flatMap(item=>item.types||[]));
+  assert.equal(all.size,16);
+  for(const name of ["corporate_office","business_center","coworking_space",
+    "marketing_consultant","research_institute","manufacturer","supplier",
+    "bank","insurance_agency","telecommunications_service_provider","university",
+    "educational_institution","hospital","shipping_service","real_estate_agency"]) {
+    assert.ok(all.has(name),name);
+  }
+});
+test("IT employer expanded mode makes five grouped paid calls, no repeat IDs",async()=>{
+  const calls:string[][]=[];
+  const fetcher:typeof fetch=async(_input,init)=>{
+    const body=JSON.parse(String(init?.body)) as {includedTypes?:string[]};
+    calls.push(body.includedTypes||[]);
+    return Response.json({places:[place]});
+  };
+  const data=await discoverGooglePlaces(polygon,bounds,"all",{
+    apiKey:"test",expanded:true,maxRequests:0,goal:"it",fetcher,
+  });
+  assert.equal(data.requestCount,5);
+  assert.equal(calls.length,5);
+  assert.equal(calls[0].length,16);
+  assert.equal(data.businesses.length,1);
+});
