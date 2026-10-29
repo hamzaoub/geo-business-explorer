@@ -596,7 +596,7 @@ export default function ExplorerPage() {
                     <button type="button" className="outline-button google-switch-provider"
                       onClick={() => {
                         selectProvider("geoapify");
-                        void runSearch(polygon, "geoapify");
+                        void runSearch(polygon, "geoapify", false, {goal:"general"});
                       }}>
                       Find more businesses with Geoapify ↗
                     </button>
