@@ -216,7 +216,14 @@ test("IT employer preset searches all Google employer types, and history keeps P
   await page.mouse.move(box.x+box.width*.65,box.y+box.height*.65,{steps:12});
   await page.mouse.up();
   await expect(page.getByText("Software Hiring Company")).toBeVisible();
-  expect(received).toMatchObject({provider:"google",goal:"it",category:"all",googleExpanded:true});
+  expect(received).toMatchObject({
+    provider:"google",goal:"it",category:"all",googleExpanded:true,
+    targetTypes:expect.arrayContaining([
+      "corporate_office","business_center","coworking_space","manufacturer",
+      "research_institute","telecommunications_service_provider","shipping_service",
+    ]),
+  });
+  expect((received as {targetTypes?:string[]} | null)?.targetTypes).toHaveLength(16);
   await expect(page.locator(".history-entry")).toHaveCount(1);
   const stored=await page.evaluate(()=>localStorage.getItem("geoscout:search-history:v1"));
   expect(stored).toContain("ChIJTestingOnly");
