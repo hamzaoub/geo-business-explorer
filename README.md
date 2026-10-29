@@ -315,3 +315,38 @@ even though the JSON preview only shows 25, verify CSV website-filter exports
 10 matching records, and assert the export operation sends no additional
 source API requests. Unit tests cover Unicode, CSV escaping and the Google
 export restriction.
+
+## IT employer search coverage: Nearby + Google Text Search (New)
+
+The request has both `goal: "it"` and `category: "all"` on purpose: the goal chooses
+the sixteen predefined IT employer place types, and the category is the generic
+industry filter (not the goal). The request also includes a `targetTypes` array
+to make the chosen targets visible in browser DevTools. The server uses its own
+trusted category list rather than trusting that client array.
+
+For an IT search with the expanded mode OFF, GeoScout issues one Nearby Search
+covering those 16 place types, returning up to 20 ranked places. With expanded
+mode ON it issues five Nearby searches and additionally searches ten targeted
+Google Text Search (New) phrases (software development, IT consulting, SaaS,
+cybersecurity, cloud, AI, analytics, fintech, managed IT and web agencies).
+Text Search uses the selected rectangle via locationRestriction and can
+return up to 20 results per page, with up to two further pages per phrase
+when Google returns a valid nextPageToken (60 maximum per phrase).
+
+With `GOOGLE_PLACES_MAX_REQUESTS=0`, automatic expanded IT discovery performs
+at most **35 paid API requests**: 5 Nearby and 10 Text Search queries × up to 3
+pages each. It will use fewer requests when no subsequent pages exist.
+A positive setting from 1 to 35 defines the total request budget. It never
+represents unlimited API use; actual place counts may be much smaller due
+to Google's ranking, result limits and overlaps. The live UI reports how
+many Nearby and Text requests ran and how many duplicates were removed.
+
+Google Places result details remain live-only: no background crawling,
+persistent Places record storage, cross-provider mixing, or JSON/CSV export.
+Only Place IDs are retained in search history. Results are potential
+employers, not verified open positions. This mode does not guarantee every
+IT employer in an area. Every new request may incur Places API charges,
+and optional website/phone fields use higher-tier billing.
+
+References: https://developers.google.com/maps/documentation/places/web-service/text-search
+and https://developers.google.com/maps/documentation/places/web-service/policies
