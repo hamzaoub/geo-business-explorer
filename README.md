@@ -350,3 +350,37 @@ and optional website/phone fields use higher-tier billing.
 
 References: https://developers.google.com/maps/documentation/places/web-service/text-search
 and https://developers.google.com/maps/documentation/places/web-service/policies
+
+## Open saved websites_combined.json in Explore
+
+GeoScout adds **Saved JSON explorer** at the top of the sidebar:
+
+1. **Open websites_combined.json** fetches /websites_combined.json from the local
+   Next.js app if public/websites_combined.json exists on the computer.
+2. **Choose JSON file** lets you open the saved file directly on your machine,
+   even if it is not stored in the repository. No Places API calls occur.
+3. The file must be a JSON object with a businesses array; record IDs, names,
+   coordinates, URLs, categoryGroup and provider information are validated.
+   Invalid entries and duplicate IDs are skipped and reported. Up to
+   50,000 entries and a 25 MB file are supported for each in-memory import.
+4. Filter by categoryGroup, name/type/address/city, website availability,
+   phone availability, and email availability, in any combination.
+5. Click a business table row to view detailed contact information and links.
+
+The viewer keeps imported data in transient React state and does not save
+imported Google Places details into search history. Google-sourced data
+remains list-only without markers on the OpenStreetMap map, and its JSON/CSV
+export controls are disabled. Separately licensed OSM or Geoapify imports
+can use the normal export actions.
+
+**Google Maps Platform licensing:** Google generally restricts persisting
+and redistributing Places content such as business names, addresses, phone
+numbers and websites, while Place IDs have an exception. A saved Google
+Places file may not be compliant merely because it already exists locally.
+Do not publish such a dataset in the public directory of a public website.
+Use Choose JSON file as a local-only viewer, or store permitted Place IDs
+and fetch current details live through the official Places API.
+Policy: https://developers.google.com/maps/documentation/places/web-service/policies
+
+public/websites_combined.json is not currently committed to this repository.
+That is expected: the local Choose JSON file option works without it.
