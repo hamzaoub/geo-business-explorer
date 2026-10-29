@@ -245,3 +245,33 @@ point-in-polygon analysis. Google's Maps Platform restrictions still apply:
 https://developers.google.com/maps/documentation/places/web-service/policies
 
 For bulk company databases, use a provider that permits bulk data acquisition and export.
+
+
+## Google completeness, address components, and automatic category mode
+
+GeoScout uses the official Places API (New) field mask:
+- **Name / address / category / Google link**: fetched with Nearby Search Pro fields.
+- **City**: fetched from `places.addressComponents`, preferring the `locality`
+  component (or `postal_town` where available). It is not guessed from a comma-split address.
+- **Phone and website**: returned only if `GOOGLE_PLACES_INCLUDE_CONTACTS=true`.
+  Enabling these fields changes Nearby Search billing to the **Enterprise SKU**.
+  Google may still omit these fields for individual locations.
+- **Email**: Nearby Search does not supply an email field, so it remains null.
+
+```env
+GOOGLE_PLACES_INCLUDE_CONTACTS=true
+GOOGLE_PLACES_MAX_REQUESTS=0
+```
+
+`GOOGLE_PLACES_MAX_REQUESTS=0` now means **auto: run the complete finite category
+catalogue for the chosen category**, only when the user explicitly enables
+"Explore more Google categories". For **All businesses**, that means 18 distinct
+Nearby Search requests (maximum 20 places each, up to 360 pre-dedupe results).
+For specific categories it is fewer. No spatial gridding, pagination beyond
+Google's documented capabilities, background harvesting, or unlimited requests.
+The interface shows the configured live request budget and whether Enterprise
+contact retrieval is enabled. 0 is NOT an unlimited loop; Google quotas,
+per-request pricing, usage policies, and business-data completeness still apply.
+
+Do not use Google Places data to build a mass-downloadable directory.
+Use Geoapify/Overture or another suitably licensed source for that purpose.

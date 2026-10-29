@@ -27,6 +27,9 @@ export default function ExplorerPage() {
   const [geoapifyAvailable, setGeoapifyAvailable] = useState(false);
   const [googleAvailable, setGoogleAvailable] = useState(false);
   const [googleExpanded, setGoogleExpanded] = useState(false);
+  const [googleContactsEnabled, setGoogleContactsEnabled] = useState(false);
+  const [googleRequestBudget, setGoogleRequestBudget] = useState(6);
+  const [googleAutomatic, setGoogleAutomatic] = useState(false);
   const [geocoderAvailable, setGeocoderAvailable] = useState(false);
   const [placeQuery, setPlaceQuery] = useState("");
   const [locating, setLocating] = useState(false);
@@ -50,11 +53,17 @@ export default function ExplorerPage() {
     let cancelled = false;
     fetch("/api/capabilities", { cache: "no-store" })
       .then((response) => response.json())
-      .then((data: { providers?: { overture?: boolean; geoapify?: boolean; google?: boolean } }) => {
+      .then((data: {
+        providers?: { overture?: boolean; geoapify?: boolean; google?: boolean };
+        google?: { includeContacts?: boolean; requestBudget?: number; automatic?: boolean };
+      }) => {
         if (!cancelled) {
           setOvertureAvailable(Boolean(data.providers?.overture));
           setGeoapifyAvailable(Boolean(data.providers?.geoapify));
           setGoogleAvailable(Boolean(data.providers?.google));
+          setGoogleContactsEnabled(Boolean(data.google?.includeContacts));
+          if (data.google?.requestBudget) setGoogleRequestBudget(data.google.requestBudget);
+          setGoogleAutomatic(Boolean(data.google?.automatic));
           if (data.providers?.geoapify) setProvider("geoapify");
           setGeocoderAvailable(Boolean((data as { geocoder?: boolean }).geocoder));
         }
@@ -255,8 +264,9 @@ export default function ExplorerPage() {
                     }} />
                   <span>
                     <strong>Explore more Google categories</strong>
-                    <small>Opt in: up to 6 billable Places requests per selection;
-                      up to 120 results before duplicates. No bulk export.</small>
+                    <small>Opt in: {googleAutomatic ? "auto mode" : "configured budget"} ·
+                      up to {googleRequestBudget} paid Google Places requests (each up to 20).
+                      No unlimited search, and no bulk export.</small>
                   </span>
                 </label>
               )}
@@ -382,6 +392,12 @@ export default function ExplorerPage() {
               <div className="google-places-notice">
                 <strong className="google-maps-attribution" translate="no">Google Maps</strong>
                 <span>Live Google Places results · up to 20 per request · no bulk collection or JSON/CSV export.
+                  <strong className="google-call-count">
+                    {googleContactsEnabled
+                      ? "Phone and website fields enabled (Enterprise billing); missing values mean Google did not provide them."
+                      : "Phone and website fields are disabled. Set GOOGLE_PLACES_INCLUDE_CONTACTS=true in .env.local for higher-tier retrieval."}
+                    {" "}Google Places does not provide business email addresses. City is taken from Google's structured locality when supplied.
+                  </strong>
                   {result.requestCount && (
                     <strong className="google-call-count"> {result.requestCount} paid API request{result.requestCount === 1 ? "" : "s"} made · {result.count} unique places shown.</strong>
                   )}
