@@ -3,7 +3,9 @@ import type { Business, Category, Position } from "./types";
 import { UpstreamError } from "./overpass";
 
 const API_URL = "https://api.geoapify.com/v2/places";
-const PAGE_SIZE = 500;
+export const GEOAPIFY_PAGE_SIZE = 500;
+export const GEOAPIFY_DEFAULT_MAX_PAGES = 8;
+export const GEOAPIFY_ABSOLUTE_MAX_PAGES = 12;
 const CATEGORIES: Record<Category, string> = {
   all: "commercial,catering,office,service,healthcare,accommodation",
   food: "catering",
@@ -45,13 +47,14 @@ function groupFor(category: string): Business["categoryGroup"] {
   return "other";
 }
 
-export function buildGeoapifyUrl(bounds: Bounds, category: Category, key: string): URL {
+export function buildGeoapifyUrl(bounds: Bounds, category: Category, key: string, offset = 0): URL {
   const url = new URL(API_URL);
   url.searchParams.set("categories", CATEGORIES[category]);
   url.searchParams.set("filter", "rect:" + [
     bounds.west, bounds.south, bounds.east, bounds.north,
   ].join(","));
-  url.searchParams.set("limit", String(PAGE_SIZE));
+  url.searchParams.set("limit", String(GEOAPIFY_PAGE_SIZE));
+  url.searchParams.set("offset", String(offset));
   url.searchParams.set("apiKey", key);
   return url;
 }
@@ -94,49 +97,116 @@ export function normalizeGeoapifyFeature(feature: GeoapifyFeature, polygon: Posi
   };
 }
 
+
+function maxPagesFromEnvironment(): number {
+  const raw = process.env.GEOAPIFY_MAX_PAGES;
+  if (!raw) return GEOAPIFY_DEFAULT_MAX_PAGES;
+  const count = Number(raw);
+  return Number.isInteger(count) && count >= 1
+    ? Math.min(count, GEOAPIFY_ABSOLUTE_MAX_PAGES)
+    : GEOAPIFY_DEFAULT_MAX_PAGES;
+}
+
+/**
+ * Paginate through a focused area (500 records per request). No attempt is
+ * made to claim exhaustive coverage: even multiple pages can be source-limited.
+ * Respect billing quotas and explicitly report partial results at the page cap.
+ */
 export async function discoverGeoapify(
   polygon: Position[], bounds: Bounds, category: Category,
-  options: { apiKey?: string; fetcher?: typeof fetch; timeoutMs?: number } = {},
-): Promise<{ businesses: Business[]; truncated: boolean }> {
+  options: {
+    apiKey?: string;
+    fetcher?: typeof fetch;
+    timeoutMs?: number;
+    maxPages?: number;
+  } = {},
+): Promise<{ businesses: Business[]; truncated: boolean; warning?: string }> {
   const key = options.apiKey || process.env.GEOAPIFY_API_KEY?.trim();
   if (!key) throw new UpstreamError(
     "Geoapify Places is not configured. Add GEOAPIFY_API_KEY to .env.local and restart the server.", 503,
   );
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 15_000);
-  let response: Response;
-  try {
-    response = await (options.fetcher ?? fetch)(buildGeoapifyUrl(bounds, category, key), {
-      signal: controller.signal, cache: "no-store",
-      headers: { "Accept": "application/json" },
-    });
-  } catch {
-    throw new UpstreamError("Geoapify Places did not respond. Check your connection and try again.", 503);
-  } finally {
-    clearTimeout(timeout);
-  }
-  if (response.status === 401 || response.status === 403) {
-    throw new UpstreamError("Geoapify API key is invalid or not permitted for Places API.", 502);
-  }
-  if (response.status === 429) {
-    throw new UpstreamError("Geoapify rate limit reached. Wait and retry; check your usage quota.", 429);
-  }
-  if (!response.ok) {
-    throw new UpstreamError("Geoapify Places returned HTTP " + response.status + ".", 503);
-  }
-  let data: GeoapifyResponse;
-  try { data = await response.json(); }
-  catch { throw new UpstreamError("Geoapify Places returned invalid JSON.", 502); }
-  if (!Array.isArray(data?.features)) {
-    throw new UpstreamError("Geoapify Places returned an unexpected response.", 502);
-  }
+  const maxPages = Math.min(
+    GEOAPIFY_ABSOLUTE_MAX_PAGES,
+    Math.max(1, Math.floor(options.maxPages ?? maxPagesFromEnvironment())),
+  );
   const found = new Map<string, Business>();
-  for (const feature of data.features) {
-    const item = normalizeGeoapifyFeature(feature, polygon);
-    if (item) found.set(item.id, item);
+  let truncated = false;
+  let warning: string | undefined;
+
+  for (let page = 0; page < maxPages; page++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 16_000);
+    let response: Response;
+    try {
+      response = await (options.fetcher ?? fetch)(
+        buildGeoapifyUrl(bounds, category, key, page * GEOAPIFY_PAGE_SIZE), {
+          signal: controller.signal,
+          cache: "no-store",
+          headers: { "Accept": "application/json" },
+        },
+      );
+    } catch {
+      if (page > 0) {
+        truncated = true;
+        warning = "Geoapify stopped responding after " + page +
+          " page(s). Already found places are shown; narrow the region and retry.";
+        break;
+      }
+      throw new UpstreamError("Geoapify Places did not respond. Check your connection and try again.", 503);
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    // Respect provider quota; do not request additional pages after an error.
+    if (!response.ok) {
+      const reason = response.status === 429
+        ? "Geoapify quota/rate limit reached."
+        : response.status === 401 || response.status === 403
+          ? "Geoapify API key is invalid or not permitted for Places API."
+          : "Geoapify Places returned HTTP " + response.status + ".";
+      if (page > 0) {
+        truncated = true;
+        warning = reason + " Showing only the successfully retrieved pages.";
+        break;
+      }
+      throw new UpstreamError(reason, response.status === 429 ? 429 :
+        response.status === 401 || response.status === 403 ? 502 : 503);
+    }
+
+    let data: GeoapifyResponse;
+    try { data = await response.json(); }
+    catch {
+      if (page > 0) {
+        truncated = true;
+        warning = "Geoapify returned invalid JSON during pagination; results are partial.";
+        break;
+      }
+      throw new UpstreamError("Geoapify Places returned invalid JSON.", 502);
+    }
+    if (!Array.isArray(data?.features)) {
+      if (page > 0) {
+        truncated = true;
+        warning = "Geoapify returned an unexpected page; results are partial.";
+        break;
+      }
+      throw new UpstreamError("Geoapify Places returned an unexpected response.", 502);
+    }
+    for (const feature of data.features) {
+      const item = normalizeGeoapifyFeature(feature, polygon);
+      if (item) found.set(item.id, item);
+    }
+    if (data.features.length < GEOAPIFY_PAGE_SIZE) break;
+    if (page === maxPages - 1) {
+      truncated = true;
+      warning = "Geoapify page limit reached (" + maxPages + " × " +
+        GEOAPIFY_PAGE_SIZE + " places scanned). Results may be incomplete. " +
+        "Select a smaller area or adjust GEOAPIFY_MAX_PAGES.";
+    }
   }
+
   return {
     businesses: [...found.values()].sort((a, b) => a.name.localeCompare(b.name)),
-    truncated: data.features.length >= PAGE_SIZE,
+    truncated,
+    ...(warning ? { warning } : {}),
   };
 }
