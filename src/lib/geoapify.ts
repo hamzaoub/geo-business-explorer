@@ -88,7 +88,7 @@ export function normalizeGeoapifyFeature(feature: GeoapifyFeature, polygon: Posi
     address, city: clean(props?.city),
     location: { latitude: lat, longitude: lon },
     source: "geoapify",
-    sourceUrl: "https://www.openstreetmap.org/copyright",
+    sourceUrl: "https://www.geoapify.com/places-api/",
     sources: ["geoapify"],
     confidence: null,
   };
