@@ -15,8 +15,9 @@ const CONTACT_FIELDS = ",places.internationalPhoneNumber,places.websiteUri";
 const CATEGORY_TYPES: Partial<Record<Category, string[]>> = {
   food: ["restaurant", "cafe", "bakery", "bar"],
   retail: ["store"],
+  services: ["corporate_office", "lawyer", "consultant", "insurance_agency", "real_estate_agency", "marketing_consultant"],
   health: ["hospital", "pharmacy", "doctor", "dentist"],
-  stay: ["hotel", "motel"],
+  stay: ["hotel", "motel", "hostel", "guest_house"],
 };
 
 interface GooglePlace {
@@ -111,7 +112,7 @@ export function googlePlaceToBusiness(
     /hospital|pharmacy|doctor|dentist|clinic|medical/.test(type) ? "health" :
     /hotel|motel|lodging|hostel/.test(type) ? "stay" :
     /store|shop|supermarket|mall/.test(type) ? "retail" :
-    /lawyer|accounting|agency|office|service/.test(type) ? "services" : "other";
+    /lawyer|accounting|agency|office|service|consultant/.test(type) ? "services" : "other";
   const website = place.websiteUri;
   let safeWebsite: string | null = null;
   try {
