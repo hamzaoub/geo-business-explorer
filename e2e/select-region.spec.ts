@@ -409,7 +409,7 @@ test("missing public JSON gives a helpful error and local file picker still work
   }));
   await page.goto("/");
   await page.getByRole("button",{name:"Open websites_combined.json"}).click();
-  await expect(page.getByRole("alert")).toContainText("was not found");
+  await expect(page.locator(".saved-json-error")).toContainText("was not found");
   await page.locator('input[type="file"]').setInputFiles({
     name:"businesses-local.json",mimeType:"application/json",
     buffer:Buffer.from(JSON.stringify({businesses:[{
