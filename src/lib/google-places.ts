@@ -8,7 +8,7 @@ export const GOOGLE_NEARBY_URL = "https://places.googleapis.com/v1/places:search
 export const GOOGLE_MAX_RESULTS = 20;
 export const GOOGLE_FIELD_MASK_BASE = [
   "places.id", "places.displayName", "places.formattedAddress",
-  "places.location", "places.primaryType", "places.types",
+  "places.location", "places.addressComponents", "places.primaryType", "places.types",
   "places.googleMapsUri", "places.attributions",
 ].join(",");
 const CONTACT_FIELDS = ",places.internationalPhoneNumber,places.websiteUri";
@@ -24,6 +24,11 @@ interface GooglePlace {
   id?: string;
   displayName?: { text?: string };
   formattedAddress?: string;
+  addressComponents?: Array<{
+    longText?: string;
+    shortText?: string;
+    types?: string[];
+  }>;
   location?: { latitude?: number; longitude?: number };
   primaryType?: string;
   types?: string[];
@@ -130,7 +135,11 @@ export function googlePlaceToBusiness(
     phone: place.internationalPhoneNumber?.slice(0, 250) || null,
     email: null, // The Places Nearby API does not return business emails.
     address: place.formattedAddress?.slice(0, 300) || null,
-    city: null,
+    // Prefer Google's structured locality over guessing from formattedAddress.
+    // When Google has no locality, leaving null is more accurate.
+    city: place.addressComponents?.find(part => part.types?.includes("locality"))?.longText ||
+      place.addressComponents?.find(part => part.types?.includes("postal_town"))?.longText ||
+      null,
     location: { latitude: lat, longitude: lon },
     source: "google_places",
     sourceUrl: safeLink(place.googleMapsUri, place.id),
@@ -140,39 +149,50 @@ export function googlePlaceToBusiness(
 }
 
 
-export const GOOGLE_MAX_LIVE_REQUESTS = 6;
+// 0 in GOOGLE_PLACES_MAX_REQUESTS means: the complete *finite* catalogue
+// of distinct live category searches. It NEVER means unlimited API calls.
+export const GOOGLE_DEFAULT_MAX_REQUESTS = 6;
+export const GOOGLE_MAX_LIVE_REQUESTS = 24;
 type GoogleRequestPlan = { category: Category; types?: string[]; label: string };
+
+const LIVE_CATEGORY_INTENTS: GoogleRequestPlan[] = [
+  { category:"food", types:["restaurant","cafe"], label:"Restaurants and cafés" },
+  { category:"food", types:["bakery","bar"], label:"Bakeries and bars" },
+  { category:"food", types:["fast_food_restaurant","coffee_shop"], label:"Quick service and coffee" },
+  { category:"retail", types:["store","shopping_mall"], label:"Shops and shopping centres" },
+  { category:"retail", types:["supermarket","convenience_store"], label:"Groceries and convenience" },
+  { category:"retail", types:["clothing_store","electronics_store"], label:"Fashion and electronics" },
+  { category:"retail", types:["furniture_store","hardware_store"], label:"Furniture and hardware" },
+  { category:"services", types:["corporate_office","lawyer"], label:"Offices and legal services" },
+  { category:"services", types:["accounting","insurance_agency"], label:"Accounting and insurance" },
+  { category:"services", types:["real_estate_agency"], label:"Real estate agencies" },
+  { category:"services", types:["car_repair","car_dealer"], label:"Automotive services" },
+  { category:"services", types:["beauty_salon","hair_care"], label:"Beauty and hair salons" },
+  { category:"services", types:["bank","post_office"], label:"Financial and postal services" },
+  { category:"health", types:["hospital","pharmacy"], label:"Hospitals and pharmacies" },
+  { category:"health", types:["doctor","dentist"], label:"Doctors and dentists" },
+  { category:"stay", types:["hotel","motel"], label:"Hotels and motels" },
+  { category:"stay", types:["hostel","guest_house"], label:"Hostels and guest houses" },
+];
 
 export function googleLiveSearchPlan(
   category: Category,
   expanded = false,
-  maxRequests = GOOGLE_MAX_LIVE_REQUESTS,
+  maxRequests = GOOGLE_DEFAULT_MAX_REQUESTS,
 ): GoogleRequestPlan[] {
   const base: GoogleRequestPlan = { category, label: "Nearby places" };
   if (!expanded) return [base];
-  // Different place categories are genuine separate user-visible discovery
-  // intents. No geographic grid, recursive splitting or automatic harvesting.
-  const extra: GoogleRequestPlan[] = category === "all"
-    ? (["food", "retail", "services", "health", "stay"] as const)
-        .map(item => ({ category: item, label: item }))
-    : category === "food"
-      ? [{category,types:["restaurant","cafe"],label:"Restaurants and cafés"},
-         {category,types:["bakery","bar"],label:"Bakeries and bars"}]
-    : category === "retail"
-      ? [{category,types:["store"],label:"Retail stores"},
-         {category,types:["shopping_mall"],label:"Shopping centres"}]
-    : category === "services"
-      ? [{category,types:["lawyer","insurance_agency"],label:"Professional services"},
-         {category,types:["real_estate_agency","corporate_office"],label:"Business offices"}]
-    : category === "health"
-      ? [{category,types:["hospital","pharmacy"],label:"Hospitals and pharmacies"},
-         {category,types:["doctor","dentist"],label:"Doctors and dentists"}]
-    : [{category,types:["hotel","motel"],label:"Hotels and motels"},
-       {category,types:["hostel","guest_house"],label:"Hostels and guest houses"}];
+  const intents = category === "all"
+    ? LIVE_CATEGORY_INTENTS
+    : LIVE_CATEGORY_INTENTS.filter(intent => intent.category === category);
+  // No geographic gridding, bulk acquisition, unbounded recursion, or API abuse.
+  // Each distinct, predefined category is queried at most once.
+  const plan = [base, ...intents];
+  if (maxRequests === 0) return plan;
   const limit = Number.isFinite(maxRequests)
     ? Math.max(1, Math.min(GOOGLE_MAX_LIVE_REQUESTS, Math.floor(maxRequests)))
-    : 1;
-  return [base, ...extra].slice(0, limit);
+    : GOOGLE_DEFAULT_MAX_REQUESTS;
+  return plan.slice(0, limit);
 }
 
 export interface GoogleLiveResult {
@@ -197,7 +217,7 @@ export async function discoverGooglePlaces(
   const includeContacts = options.includeContacts ??
     process.env.GOOGLE_PLACES_INCLUDE_CONTACTS === "true";
   const requestedMax = options.maxRequests ??
-    Number(process.env.GOOGLE_PLACES_MAX_REQUESTS || GOOGLE_MAX_LIVE_REQUESTS);
+    Number(process.env.GOOGLE_PLACES_MAX_REQUESTS ?? GOOGLE_DEFAULT_MAX_REQUESTS);
   const plan = googleLiveSearchPlan(category, options.expanded === true, requestedMax);
   const fetcher = options.fetcher ?? fetch;
   const found = new Map<string, Business>();
@@ -280,6 +300,8 @@ export async function discoverGooglePlaces(
   // At most two simultaneous paid calls, only after the user opts in.
   await Promise.all(Array.from({length: Math.min(2,plan.length)}, () => worker()));
   if (failure && failedCount === requestCount) throw failure;
+  // Each Nearby call is capped at 20 and has no native pagination. No plan
+  // guarantees a full business inventory, regardless of result count.
   const truncated = fullCount > 0 || failedCount > 0 || plan.length > 1;
   const warning = failedCount > 0
     ? "Only " + (requestCount - failedCount) + " of " + requestCount +
