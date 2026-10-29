@@ -419,6 +419,42 @@ export default function ExplorerPage() {
             <p className="side-footnote">Search starts automatically when you release the mouse.
               Google Places results are live view-only and cannot be exported. Other sources support JSON/CSV.</p>
           </div>
+          <div className="history-panel">
+            <div className="history-heading">
+              <strong>◷ Search history</strong>
+              <span>{history.length} saved</span>
+              {history.length > 0 && (
+                <button type="button" onClick={() => {
+                  setHistory(removeSearchHistory(null));
+                  setHistoryPreview(null);
+                  setHistoryNotice(null);
+                }}>Clear all</button>
+              )}
+            </div>
+            <p>Reuse recent searches on this device without making unnecessary API requests.</p>
+            {history.length === 0 ? (
+              <p className="history-empty">Draw a region to save your first search.</p>
+            ) : (
+              <div className="history-list">
+                {history.slice(0,10).map(entry => (
+                  <div className="history-entry" key={entry.key}>
+                    <div className="history-entry-head">
+                      <strong>{entry.goal === "it" ? "IT employers" : "All businesses"}
+                        <small> · {entry.provider.toUpperCase()}</small></strong>
+                      <button type="button" aria-label="Remove saved search"
+                        onClick={() => setHistory(removeSearchHistory(entry.key))}>×</button>
+                    </div>
+                    <small>{entry.count} places · {new Date(entry.timestamp).toLocaleString()} ·
+                      {entry.snapshot ? " reusable" : entry.provider === "google" ? " Place IDs only" : " metadata only"}</small>
+                    <div className="history-actions">
+                      <button type="button" onClick={() => openHistoryEntry(entry)}>Open</button>
+                      <button type="button" onClick={() => openHistoryEntry(entry,true)}>Refresh ↗</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </aside>
 
         <section className="content">
@@ -455,6 +491,22 @@ export default function ExplorerPage() {
           </div>
 
           <div className="results" ref={resultsRef}>
+            {historyNotice && <div className="history-loaded-notice" role="status">{historyNotice}</div>}
+            {historyPreview?.provider === "google" && (
+              <div className="google-history-ids">
+                <strong>Saved Google Maps Place IDs ({historyPreview.googlePlaceIds?.length ?? 0})</strong>
+                <p>Only Google Place IDs were retained. Refresh for current business details.
+                  Opening a saved ID goes directly to Google Maps without a GeoScout API request.</p>
+                <div className="history-id-links">
+                  {(historyPreview.googlePlaceIds || []).slice(0,50).map(id => (
+                    <a key={id} href={"https://www.google.com/maps/place/?q=place_id:" + encodeURIComponent(id)}
+                      target="_blank" rel="noopener noreferrer">{id.slice(0,28)} ↗</a>
+                  ))}
+                </div>
+                <button type="button" className="outline-button"
+                  onClick={() => openHistoryEntry(historyPreview,true)}>Refresh Google search</button>
+              </div>
+            )}
             <div className="results-head">
               <div>
                 <span className="section-kicker">YOUR DISCOVERY LIST</span>
