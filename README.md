@@ -283,3 +283,35 @@ Use Geoapify/Overture or another suitably licensed source for that purpose.
 **Search history** keeps up to twenty recent searches in this browser, rather than on a server. For OpenStreetMap / Geoapify / Overture, exact matching area + filters can reuse locally saved search results for **24 hours**, avoiding another API call. You can Open, Refresh, delete individual entries, or Clear all. The history retains metadata for 30 days and may omit large snapshots when browser storage is full.
 
 Google history stores **only your search settings and Google Place IDs**, not names, addresses, websites or phones. Place IDs can be reused to link to Google Maps without a new GeoScout API request; refreshing a Google search makes new billable requests. Google does not permit caching most other Places content. https://developers.google.com/maps/documentation/places/web-service/policies
+
+
+## Explore → export verified
+
+GeoScout's **Business results** panel now shows an export-ready counter.
+After a map search using **OpenStreetMap, Geoapify Places, or an appropriately
+licensed Overture source**, choose **↓ JSON** or **↓ CSV**. Both files download
+**every currently filtered matching record**, including records not on the first
+25-row table page. The buttons do not trigger another API request, and work for
+fresh results and reusable search-history snapshots.
+
+JSON includes the selected polygon, query metadata, provider attribution,
+completeness warning, and every business record. CSV uses an Excel-compatible
+UTF-8 BOM and contains IDs, name, business type, category group, URL, phone,
+email, address, city, coordinates, original provider and source URL.
+Spreadsheet formula injection is escaped before exporting. The name includes
+the source, date and exported record count. The original JSON schema remains
+version 1.0 for compatibility.
+
+**Google Places** is a live-only data source: Google's policies restrict bulk
+downloads, caching, and reuse of business details. Its JSON/CSV buttons remain
+disabled by design. GeoScout offers a one-click **Find more businesses with
+Geoapify** option (when configured) or **Search exportable OpenStreetMap data**,
+which runs a new independent, properly licensed search of the same area. These
+exports contain only the new source's own results, never copied Google Places
+content. Coverage may differ from Google.
+
+Browser E2E tests download real JSON/CSV files, verify 35 records exported
+even though the JSON preview only shows 25, verify CSV website-filter exports
+10 matching records, and assert the export operation sends no additional
+source API requests. Unit tests cover Unicode, CSV escaping and the Google
+export restriction.
