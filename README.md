@@ -192,3 +192,18 @@ Public Overpass availability is not guaranteed. GeoScout now supports Geoapify's
 When the key is configured, Geoapify becomes the automatically selected provider. You can still choose OpenStreetMap; if public Overpass fails with a server error or timeout, GeoScout falls back to Geoapify. Rate limits (429) are not bypassed.
 
 Geoapify returns places as GeoJSON. GeoScout checks every feature against your exact selected polygon, shows names, addresses, categories and any available website/phone/email fields, and preserves source attribution in JSON/CSV exports. The first 500 places are returned; if that cap is reached, the response is explicitly marked **partial**. This is not an exhaustive company registry. Per Geoapify's terms, display **Geoapify and OpenStreetMap attribution** whenever Geoapify records are used, and comply with ODbL for OpenStreetMap-derived data. Do not publish your server-side key in client code.
+
+## Google Places API (New) — live option
+
+GeoScout optionally supports the **Places API (New)**, using the official Nearby Search REST endpoint. In Google Cloud Console create a billing-enabled project, enable **Places API (New)** and create an API key restricted to that API:
+- Setup: https://developers.google.com/maps/documentation/places/web-service/get-api-key
+- Google Cloud credentials: https://console.cloud.google.com/apis/credentials
+- Enable Places (New): https://console.cloud.google.com/apis/library/places.googleapis.com
+
+In the project root create `.env.local` and add `GOOGLE_PLACES_API_KEY=YOUR_KEY`, then restart the Next.js server. The **Google Places** radio option becomes available automatically. To include phone numbers and website URLs, opt in to **GOOGLE_PLACES_INCLUDE_CONTACTS=true**; these fields increase the Google Places billing SKU (Nearby Search Enterprise rather than Pro). Google does not provide email addresses via Nearby Search.
+
+Nearby Search (New) uses a **circle**, not a polygon: GeoScout derives a circle covering the selected rectangle, requests up to 20 Google Places and then filters locations to the exact selected area. There is one paid API request per explicit drag/re-search action. Results are **not exhaustive** and should never be treated as a complete business registry. Very large selections (>50 km circle radius) are rejected.
+
+**Google Places data is presented in a separate live table-only view**, never as points on an OpenStreetMap map, because Google requires its Places content on Google maps if plotted on a map. GeoScout does not cache or store Google Places results, merge them with OSM records, or permit JSON/CSV downloads of Google's content. Display attribution **Google Maps** with the results. This matters because Google's Maps Platform terms restrict content storage, bulk extraction and reuse. Only place IDs have the specified caching exception. See https://developers.google.com/maps/documentation/places/web-service/policies and https://cloud.google.com/maps-platform/terms.
+
+A commercial launch will also require compliant terms/privacy pages and potentially an official Google Maps logo asset in the results view. For bulk business-lead CSV exports, keep using OSM / Overture / appropriately licensed providers, not Google Places.

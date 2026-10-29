@@ -25,6 +25,7 @@ export default function ExplorerPage() {
   const [provider, setProvider] = useState<SearchProvider>("osm");
   const [overtureAvailable, setOvertureAvailable] = useState(false);
   const [geoapifyAvailable, setGeoapifyAvailable] = useState(false);
+  const [googleAvailable, setGoogleAvailable] = useState(false);
   const [geocoderAvailable, setGeocoderAvailable] = useState(false);
   const [placeQuery, setPlaceQuery] = useState("");
   const [locating, setLocating] = useState(false);
@@ -48,10 +49,11 @@ export default function ExplorerPage() {
     let cancelled = false;
     fetch("/api/capabilities", { cache: "no-store" })
       .then((response) => response.json())
-      .then((data: { providers?: { overture?: boolean; geoapify?: boolean } }) => {
+      .then((data: { providers?: { overture?: boolean; geoapify?: boolean; google?: boolean } }) => {
         if (!cancelled) {
           setOvertureAvailable(Boolean(data.providers?.overture));
           setGeoapifyAvailable(Boolean(data.providers?.geoapify));
+          setGoogleAvailable(Boolean(data.providers?.google));
           if (data.providers?.geoapify) setProvider("geoapify");
           setGeocoderAvailable(Boolean((data as { geocoder?: boolean }).geocoder));
         }
@@ -111,7 +113,7 @@ export default function ExplorerPage() {
       setTextFilter("");
       setWebsiteFilter("all");
       setPage(1);
-      setViewMode("json");
+      setViewMode(provider === "google" ? "table" : "json");
     } catch (cause) {
       if (controller.signal.aborted || activeRequest.current !== controller) return;
       setError(cause instanceof Error ? cause.message : "Search failed.");
@@ -178,7 +180,7 @@ export default function ExplorerPage() {
         </div>
         <div className="topbar-right">
           <span className="nav-muted">Business intelligence, mapped.</span>
-          <span className="source-badge"><span className="source-dot" /> {provider === "both" ? "OSM + Overture" : provider === "overture" ? "Overture Maps" : provider === "geoapify" ? "Geoapify Places" : "OpenStreetMap data"}</span>
+          <span className="source-badge"><span className="source-dot" /> {provider === "both" ? "OSM + Overture" : provider === "overture" ? "Overture Maps" : provider === "geoapify" ? "Geoapify Places" : provider === "google" ? "Google Maps Places" : "OpenStreetMap data"}</span>
         </div>
       </header>
 
@@ -231,6 +233,11 @@ export default function ExplorerPage() {
                 Geoapify Places <span>{geoapifyAvailable ? "Connected · recommended" : "API key needed"}</span>
               </label>
               <label className="source-option">
+                <input type="radio" name="source" disabled={!googleAvailable}
+                  checked={provider === "google"} onChange={() => selectProvider("google")} />
+                Google Places <span>{googleAvailable ? "Connected · live view" : "API key needed"}</span>
+              </label>
+              <label className="source-option">
                 <input type="radio" name="source" disabled={!overtureAvailable}
                   checked={provider === "overture"} onChange={() => selectProvider("overture")} />
                 Overture Maps <span>{overtureAvailable ? "Connected" : "Worker needed"}</span>
@@ -254,7 +261,8 @@ export default function ExplorerPage() {
               <span>{loading ? "◌" : "↗"}</span>
             </button>
             {error && <div className="error-notice" role="alert">{error}</div>}
-            <p className="side-footnote">Searching begins automatically when you release the mouse. Data coverage depends on the selected sources; no source guarantees every business.</p>
+            <p className="side-footnote">Search starts automatically when you release the mouse.
+              Google Places results are live view-only and cannot be exported. Other sources support JSON/CSV.</p>
           </div>
         </aside>
 
@@ -278,7 +286,9 @@ export default function ExplorerPage() {
           <div className="map-panel">
             <MapCanvas
               polygon={polygon}
-              businesses={businesses}
+              businesses={result?.provider === "google" ? [] : businesses}
+              resultCount={businesses.length}
+              googleResults={result?.provider === "google"}
               selectedBusinessId={selectedBusinessId}
               focusLocation={focusLocation}
               onPolygonChange={changePolygon}
@@ -296,9 +306,9 @@ export default function ExplorerPage() {
                 <h2>Business results <span className="results-count">{businesses.length}</span></h2>
               </div>
               <div className="export-actions">
-                <button type="button" className="outline-button" disabled={!result || !filtered.length}
+                <button type="button" className="outline-button" disabled={!result || !filtered.length || result.provider === "google"}
                   onClick={() => result && exportJson(filtered, polygon, result)}>↓ JSON</button>
-                <button type="button" className="outline-button" disabled={!result || !filtered.length}
+                <button type="button" className="outline-button" disabled={!result || !filtered.length || result.provider === "google"}
                   onClick={() => exportCsv(filtered)}>↓ CSV</button>
               </div>
             </div>
@@ -341,7 +351,17 @@ export default function ExplorerPage() {
               <div className="warning-notice">Search result limit reached or a provider was unavailable. This is a partial result; select a smaller area for better coverage.</div>
             )}
 
-            {result && (
+            {result?.provider === "google" && (
+              <div className="google-places-notice">
+                <strong className="google-maps-attribution" translate="no">Google Maps</strong>
+                <span>Live Google Places results · no storage, JSON/CSV export or Google markers on the OpenStreetMap map.
+                  <a href="https://developers.google.com/maps/documentation/places/web-service/policies"
+                    target="_blank" rel="noopener noreferrer"> View usage policies ↗</a>
+                </span>
+              </div>
+            )}
+
+            {result && result.provider !== "google" && (
               <div className="results-view-switch" role="group" aria-label="Results display">
                 <button type="button" className={viewMode === "json" ? "active" : ""}
                   aria-pressed={viewMode === "json"} onClick={() => setViewMode("json")}>
@@ -359,7 +379,7 @@ export default function ExplorerPage() {
               <div className="empty-state scan-progress" role="status" aria-live="polite">
                 <div className="scan-progress-wheel" />
                 <strong>Searching businesses inside your selection…</strong>
-                <p>Loading OpenStreetMap data. Larger areas may take longer.</p>
+                <p>Looking up places with the selected provider. Larger areas may take longer.</p>
               </div>
             ) : error ? (
               <div className="empty-state" role="alert">
@@ -379,7 +399,7 @@ export default function ExplorerPage() {
                 <strong>No matching businesses</strong>
                 <p>Try a different category, website filter, or selected area.</p>
               </div>
-            ) : viewMode === "json" ? (
+            ) : result.provider !== "google" && viewMode === "json" ? (
               <div className="json-pane">
                 <div className="json-pane-top">
                   <span><span className="live-dot" /> businesses.json · read-only preview</span>
@@ -410,7 +430,7 @@ export default function ExplorerPage() {
                                 onClick={(e) => e.stopPropagation()}>Visit site ↗</a>
                             : <span className="muted">Not listed</span>}</td>
                           <td><a href={business.sourceUrl} target="_blank" rel="noopener noreferrer"
-                              onClick={(e) => e.stopPropagation()}>{business.sources.map(s => s === "overture" ? "Overture" : s === "geoapify" ? "Geoapify" : "OSM").join(" + ")} ↗</a></td>
+                              onClick={(e) => e.stopPropagation()}>{business.sources.map(s => s === "overture" ? "Overture" : s === "geoapify" ? "Geoapify" : s === "google_places" ? "Google Maps" : "OSM").join(" + ")} ↗</a></td>
                         </tr>
                       ))}
                     </tbody>

@@ -1,8 +1,8 @@
 export type Position = [longitude: number, latitude: number];
 export type Category = "all" | "food" | "retail" | "services" | "health" | "stay";
 export type WebsiteFilter = "all" | "with" | "without";
-export type SearchProvider = "osm" | "overture" | "both" | "geoapify";
-export type SourceName = "openstreetmap" | "overture" | "geoapify";
+export type SearchProvider = "osm" | "overture" | "both" | "geoapify" | "google";
+export type SourceName = "openstreetmap" | "overture" | "geoapify" | "google_places";
 
 export interface Business {
   id: string;

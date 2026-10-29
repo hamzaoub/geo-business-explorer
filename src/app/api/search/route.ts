@@ -3,6 +3,7 @@ import { normalizePolygon, polygonBounds, PolygonError } from "@/lib/geo";
 import { discoverBusinesses, UpstreamError } from "@/lib/overpass";
 import { discoverOverture } from "@/lib/overture";
 import { discoverGeoapify } from "@/lib/geoapify";
+import { discoverGooglePlaces } from "@/lib/google-places";
 import { mergeBusinesses } from "@/lib/merge";
 import type { Category, DataAttribution, SearchProvider, SearchResponse } from "@/lib/types";
 
@@ -10,10 +11,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const CATEGORIES = new Set<Category>(["all", "food", "retail", "services", "health", "stay"]);
-const PROVIDERS = new Set<SearchProvider>(["osm", "overture", "both", "geoapify"]);
+const PROVIDERS = new Set<SearchProvider>(["osm", "overture", "both", "geoapify", "google"]);
 const cooldowns = new Map<string, number>();
 
-const ATTRIBUTION: Record<"osm" | "overture" | "geoapify", DataAttribution> = {
+const ATTRIBUTION: Record<"osm" | "overture" | "geoapify" | "google", DataAttribution> = {
   osm: {
     name: "OpenStreetMap",
     license: "ODbL 1.0",
@@ -31,6 +32,12 @@ const ATTRIBUTION: Record<"osm" | "overture" | "geoapify", DataAttribution> = {
     license: "OpenStreetMap ODbL 1.0; Geoapify terms and attribution apply",
     attribution: "Powered by Geoapify · © OpenStreetMap contributors",
     url: "https://www.geoapify.com/terms-and-conditions/",
+  },
+  google: {
+    name: "Google Maps",
+    license: "Google Maps Platform Terms; no bulk extraction, storage or independent exports",
+    attribution: "Google Maps",
+    url: "https://developers.google.com/maps/documentation/places/web-service/policies",
   },
 };
 
@@ -67,8 +74,11 @@ export async function POST(request: NextRequest) {
     if ((provider === "overture" || provider === "both") && bounds.approximateKm2 > 200) {
       return respondError("Overture preview searches are limited to 200 km². Select a smaller area or use OpenStreetMap.", 400);
     }
+    if (provider === "google" && !process.env.GOOGLE_PLACES_API_KEY) {
+      return respondError("Add GOOGLE_PLACES_API_KEY to .env.local to enable Google Places.", 503);
+    }
     cooldowns.set(key, now);
-    type DataProvider = "osm" | "overture" | "geoapify";
+    type DataProvider = "osm" | "overture" | "geoapify" | "google";
     const requested: DataProvider[] = provider === "both" ? ["osm", "overture"] : [provider];
     async function searchSource(p: DataProvider) {
       if (p === "overture") {
@@ -76,6 +86,9 @@ export async function POST(request: NextRequest) {
       }
       if (p === "geoapify") {
         return { result: await discoverGeoapify(polygon, bounds, category), source: p, fallback: false };
+      }
+      if (p === "google") {
+        return { result: await discoverGooglePlaces(polygon, bounds, category), source: p, fallback: false };
       }
       try {
         return { result: await discoverBusinesses(polygon, bounds, category), source: p, fallback: false };
@@ -122,7 +135,15 @@ export async function POST(request: NextRequest) {
       return respondError((upstream?.message || "All business data sources failed.") + hint, upstream?.status || 502);
     }
     if (warnings.length) truncated = true;
-    const businesses = mergeBusinesses(groups);
+    // Google is deliberately a separate live-view provider, never merged with OSM
+    // or Overture and never cached by the business search implementation.
+    if (provider === "google") {
+      warnings.push(
+        "Google Nearby Search returns at most 20 places per request and may miss businesses. " +
+        "For licensing reasons, Google results are shown as a live list only: no export or OSM markers.",
+      );
+    }
+    const businesses = provider === "google" ? groups.flat() : mergeBusinesses(groups);
     const payload: SearchResponse = {
       businesses,
       count: businesses.length,

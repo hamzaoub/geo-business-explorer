@@ -11,6 +11,8 @@ interface Props {
   polygon: Position[] | null;
   businesses: Business[];
   selectedBusinessId: string | null;
+  resultCount?: number;
+  googleResults?: boolean;
   focusLocation?: { latitude: number; longitude: number; boundingbox: number[] | null } | null;
   searchState?: SearchState;
   searchError?: string | null;
@@ -41,6 +43,7 @@ function rectangleRing(bounds: Leaflet.LatLngBounds): Position[] {
 
 export default function MapCanvas({
   polygon, businesses, selectedBusinessId, focusLocation,
+  resultCount, googleResults = false,
   searchState = "idle", searchError = null,
   onPolygonChange, onSelectBusiness, onViewResults,
 }: Props) {
@@ -292,8 +295,8 @@ export default function MapCanvas({
           <span className="map-feedback-error">⚠ {searchError || "Business search failed. Try again."}</span>
         ) : searchState === "success" ? (
           <span className="map-feedback-success">
-            ✓ {businesses.length} businesses found
-            <button type="button" onClick={onViewResults}>View JSON ↓</button>
+            ✓ {resultCount ?? businesses.length} businesses found
+            <button type="button" onClick={onViewResults}>{googleResults ? "View places ↓" : "View JSON ↓"}</button>
           </span>
         ) : (
           <span>{tip}</span>
