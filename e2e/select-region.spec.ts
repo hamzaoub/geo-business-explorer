@@ -59,7 +59,7 @@ test("drag anywhere over the map to select and automatically see JSON results", 
   await page.mouse.move(x1, y1);
   await page.mouse.down();
   await page.mouse.move(x2, y2, { steps: 15 });
-  await expect(page.locator(".leaflet-interactive")).not.toHaveCount(0);
+  await expect(page.locator(".map-feedback")).toContainText("Release to search this region");
   await page.mouse.up();
 
   await expect(page.locator(".map-feedback")).toContainText("1 businesses found");
