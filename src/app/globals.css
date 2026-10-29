@@ -243,3 +243,45 @@ a:hover { text-decoration: underline; }
 .google-expand-toggle span { display:flex; flex-direction:column; gap:4px; }
 .google-expand-toggle small { font-size:11px; line-height:1.5; color:#527b6b; }
 .google-call-count { display:block; color:#254d72; margin-top:5px; }
+
+/* IT employer discovery and reusable browser history */
+.search-goals { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.search-goals button { background:#fff; border:1px solid #d9e8e2; border-radius:11px;
+  padding:12px 9px; text-align:left; display:flex; flex-direction:column; gap:5px; }
+.search-goals button.selected { border:2px solid #0b9478; background:#eafff4; }
+.search-goals button strong { font-size:12px; }
+.search-goals button small { font-size:10px; color:#638276; }
+.target-preview { padding:12px; background:#f2f9f6; border-radius:11px; margin-top:12px;
+  border:1px solid #d1e7dd; font-size:11px; color:#52766b; }
+.target-preview > strong { display:block; color:#164d40; font-size:12px; }
+.target-preview p { line-height:1.5; margin:7px 0; }
+.target-chip-list { display:flex; flex-wrap:wrap; gap:5px; max-height:180px; overflow-y:auto; }
+.target-chip-list span { border-radius:7px; border:1px solid #cee5d8; background:white;
+  padding:5px 7px; color:#214e42; font-size:10px; }
+.goal-category-note { margin:0; padding:10px 12px; background:#eff7f3;
+  border-radius:9px; color:#357260; font-size:12px; }
+.history-panel { border-top:1px solid #dde8e1; padding:18px 16px 24px; }
+.history-heading { display:flex; align-items:center; gap:8px; font-size:12px; }
+.history-heading span { margin-left:auto; color:#768b81; font-size:10px; }
+.history-heading button, .history-entry-head button { color:#886b6b;
+  background:transparent; border:0; font-size:12px; }
+.history-panel > p, .history-empty { font-size:11px; color:#71847c; line-height:1.5; }
+.history-list { display:flex; flex-direction:column; gap:8px; }
+.history-entry { background:#fff; border:1px solid #e0eae4; border-radius:10px; padding:10px; }
+.history-entry-head { display:flex; justify-content:space-between; align-items:center; }
+.history-entry-head strong { font-size:12px; }
+.history-entry-head small { font-size:10px; color:#768d82; }
+.history-entry > small { display:block; color:#72837a; font-size:10px; margin:5px 0 8px; }
+.history-actions { display:flex; gap:6px; }
+.history-actions button { padding:6px 10px; background:#f3faf6; border-radius:7px;
+  border:1px solid #d5e8dd; color:#205c4c; font-size:11px; }
+.history-loaded-notice { padding:10px 15px; background:#e1fae9; color:#21684d;
+  border-radius:9px; margin-bottom:10px; border:1px solid #c2ead0; font-size:12px; }
+.google-history-ids { background:#f8fafc; border:1px solid #dce4f0; border-radius:10px;
+  padding:14px; margin-bottom:16px; }
+.google-history-ids > strong { font-size:13px; }
+.google-history-ids p { font-size:11px; color:#61738a; line-height:1.5; }
+.history-id-links { display:flex; flex-wrap:wrap; gap:5px; max-height:110px; overflow-y:auto;
+  margin-bottom:12px; }
+.history-id-links a { padding:4px 6px; border:1px solid #dce6ee; border-radius:6px;
+  background:white; font-size:10px; }

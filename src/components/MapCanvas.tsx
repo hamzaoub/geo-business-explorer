@@ -215,6 +215,23 @@ export default function MapCanvas({
   }, [mode, ready]);
 
   useEffect(() => {
+    const map = mapRef.current;
+    const L = leafletRef.current;
+    if (!ready || !map || !L || gestureRef.current) return;
+    if (selectionRef.current) {
+      map.removeLayer(selectionRef.current);
+      selectionRef.current = null;
+    }
+    if (polygon && polygon.length >= 4) {
+      const points = polygon.map(([lng, lat]) => L.latLng(lat, lng));
+      selectionRef.current = L.rectangle(L.latLngBounds(points), {
+        color: "#0c9b81", weight: 3, fillColor: "#26c69a",
+        fillOpacity: 0.18, interactive: false,
+      }).addTo(map);
+    }
+  }, [ready, polygon]);
+
+  useEffect(() => {
     if (!ready || !mapRef.current || !leafletRef.current || !markersRef.current) return;
     const L = leafletRef.current;
     const markers = markersRef.current;

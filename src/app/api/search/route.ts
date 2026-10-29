@@ -5,7 +5,7 @@ import { discoverOverture } from "@/lib/overture";
 import { discoverGeoapify } from "@/lib/geoapify";
 import { discoverGooglePlaces } from "@/lib/google-places";
 import { mergeBusinesses } from "@/lib/merge";
-import type { Category, DataAttribution, SearchProvider, SearchResponse } from "@/lib/types";
+import type { Category, DataAttribution, SearchGoal, SearchProvider, SearchResponse } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -64,8 +64,13 @@ export async function POST(request: NextRequest) {
     const input = body as Record<string, unknown>;
     const category = (input.category ?? "all") as Category;
     const provider = (input.provider ?? "osm") as SearchProvider;
+    const goal = (input.goal ?? "general") as SearchGoal;
     if (!CATEGORIES.has(category)) return respondError("Unknown business category.", 400);
     if (!PROVIDERS.has(provider)) return respondError("Unknown data provider.", 400);
+    if (goal !== "general" && goal !== "it") return respondError("Unknown search goal.", 400);
+    if (goal === "it" && (provider !== "google" || category !== "all")) {
+      return respondError("IT employer preset requires Google Places with All businesses.", 400);
+    }
     if ((provider === "overture" || provider === "both") && !process.env.OVERTURE_SERVICE_URL) {
       return respondError("Overture is not configured. Set OVERTURE_SERVICE_URL on the server.", 503);
     }
@@ -91,6 +96,7 @@ export async function POST(request: NextRequest) {
         return {
           result: await discoverGooglePlaces(polygon, bounds, category, {
             expanded: input.googleExpanded === true,
+            goal,
           }),
           source: p,
           fallback: false,

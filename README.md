@@ -275,3 +275,11 @@ per-request pricing, usage policies, and business-data completeness still apply.
 
 Do not use Google Places data to build a mass-downloadable directory.
 Use Geoapify/Overture or another suitably licensed source for that purpose.
+
+## IT employer discovery and search history
+
+**What are you looking for? → IT employers** targets the sixteen business types in the Google Places taxonomy: corporate offices, business centres, coworking spaces, consultants, marketing consultants, research institutes, manufacturers, suppliers, banks, insurance agencies, telecoms, universities, educational institutions, hospitals, shipping services and real estate agencies. The UI auto-selects Google Places and the All businesses category. A standard search filters by all sixteen types in one Nearby request (capped at 20 ranked places); explicitly enabling **Search each IT employer group** performs up to five grouped Nearby calls, covering all sixteen types. A business listing is not evidence of a current vacancy.
+
+**Search history** keeps up to twenty recent searches in this browser, rather than on a server. For OpenStreetMap / Geoapify / Overture, exact matching area + filters can reuse locally saved search results for **24 hours**, avoiding another API call. You can Open, Refresh, delete individual entries, or Clear all. The history retains metadata for 30 days and may omit large snapshots when browser storage is full.
+
+Google history stores **only your search settings and Google Place IDs**, not names, addresses, websites or phones. Place IDs can be reused to link to Google Maps without a new GeoScout API request; refreshing a Google search makes new billable requests. Google does not permit caching most other Places content. https://developers.google.com/maps/documentation/places/web-service/policies
