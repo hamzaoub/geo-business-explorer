@@ -159,7 +159,8 @@ test("Google Places can be selected without exporting or plotting Google data on
   // may be rendered on the OpenStreetMap base map.
   await expect(page.locator(".leaflet-marker-pane .leaflet-marker-icon")).toHaveCount(0);
   await page.getByRole("button",{name:/Find more businesses with Geoapify/i}).click();
-  await expect(page.getByLabel("Business search JSON preview")).toContainText("Geoapify Business 34");
+  await expect(page.getByLabel("Business search JSON preview")).toContainText("Geoapify Business 20");
+  await expect(page.locator(".results-count")).toHaveText("35");
   await expect(page.getByRole("button",{name:"↓ JSON"})).toBeEnabled();
   await expect(page.getByRole("button",{name:"↓ CSV"})).toBeEnabled();
   expect(requestedProvider).toBe("geoapify");
