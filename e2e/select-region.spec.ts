@@ -129,6 +129,9 @@ test("Google Places can be selected without exporting or plotting Google data on
   await expect(page.locator("input[name='source']").nth(2)).toBeEnabled();
   await page.locator("input[name='source']").nth(2).check();
   const map=page.locator(".leaflet-host");
+  // Selecting a source in the sidebar scrolls the viewport down.
+  // Bring the map back onscreen before issuing mouse coordinates.
+  await map.scrollIntoViewIfNeeded();
   const box=await map.boundingBox();
   if (!box) throw new Error("Map missing");
   await page.mouse.move(box.x+box.width*0.3,box.y+box.height*0.3);
