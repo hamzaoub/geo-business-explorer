@@ -169,3 +169,18 @@ npm run test:e2e
 ~~~
 
 GitHub Actions runs the same browser tests after the production build. The tests mock the business-search response to verify region-selection behavior without using public Overpass quotas; **live data coverage still needs a separate integration test**.
+
+
+## Overpass connectivity and 503 errors
+
+If selecting a map region returns HTTP 503, the **external Overpass search endpoint** may be unavailable, overloaded, blocked by your network, or unable to finish a large query. This is unrelated to browser extensions or the rectangle-selection UI.
+
+GeoScout now uses two globally covering public Overpass endpoints for a small number of interactive searches: the default `overpass-api.de`, then `overpass.private.coffee` **only after** network failure, a server-side 5xx response, invalid data, or timeout. A 429 rate-limit response is respected and does **not** trigger an alternate request. Requests have per-operator deadlines, and successful bounding-box queries are cached in memory for two minutes to reduce load.
+
+Customize your operator via `OVERPASS_URL`; set `OVERPASS_FALLBACK_URL` explicitly for a second provider. If you configure your own private `OVERPASS_URL`, there is **no silent automatic public fallback**; specify a backup deliberately. Set `OVERPASS_FALLBACK_URL=none` to disable fallback entirely.
+
+For local debugging, stop and restart `npm run dev` after changing `.env.local`; Next.js does not automatically adopt all environment changes. Check your server terminal for `Overpass provider unavailable` logs. These report the failing operator and status/timeout reason without logging the selected coordinates.
+
+The app displays an error when both providers fail; it never fabricates businesses. Public servers are intended for moderate, respectful use. For production reliability, deploy an indexed OSM/Overture source or use a contracted API. See the OpenStreetMap wiki's Overpass API server list.
+
+Browser extension warning messages with `contentscript.js`, `ObjectMultiplex` or `data-lt-installed` usually originate outside the application. Test in a private browser window with extensions disabled. GeoScout suppresses root-element hydration warnings but does not alter any extension.
