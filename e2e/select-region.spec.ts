@@ -342,3 +342,87 @@ test("Explore downloads full licensed results in JSON and filtered CSV without e
   expect(csv.trimEnd().split("\r\n")).toHaveLength(11);
   expect(calls).toBe(1); // Export must never trigger new billable source requests.
 });
+
+
+test("saved websites_combined.json opens in Explore with category, website and phone filters and details",async({page})=>{
+  const records=[
+    {id:"google/ChIJBrewery",name:"Quidi Vidi Brewery",category:"brewery",categoryGroup:"other",
+      website:"http://www.quidividibrewery.ca/",phone:"+1 709-738-4040",email:null,
+      address:"35 Barrows Rd",city:"St. John's",
+      location:{latitude:47.58,longitude:-52.67},
+      source:"google_places",sourceUrl:"https://maps.google.com/?cid=123",
+      sources:["google_places"],confidence:null},
+    {id:"google/ChIJCafe",name:"Bagel Cafe",category:"cafe",categoryGroup:"food",
+      website:"https://thebagelcafe.ca",phone:"+1 709-739-4470",email:null,
+      address:"246 Duckworth St",city:"St. John's",
+      location:{latitude:47.56,longitude:-52.7},
+      source:"google_places",sourceUrl:"https://www.google.com/maps/place/?q=place_id:ChIJCafe",
+      sources:["google_places"],confidence:null},
+    {id:"google/ChIJNoSite",name:"Small Company",category:"office",categoryGroup:"services",
+      website:null,phone:null,email:"hi@example.com",address:"Water St",city:"St. John's",
+      location:{latitude:47.565,longitude:-52.72},
+      source:"google_places",sourceUrl:"https://www.google.com/maps/place/?q=place_id:ChIJNoSite",
+      sources:["google_places"],confidence:null},
+  ];
+  let liveSearchCalls=0;
+  await page.route("**/api/search",async route=>{
+    liveSearchCalls++;
+    await route.fulfill({status:500,body:"Not expected"});
+  });
+  await page.route("**/websites_combined.json",async route=>route.fulfill({
+    status:200,contentType:"application/json",body:JSON.stringify({businesses:records}),
+  }));
+  await page.goto("/");
+  await page.getByRole("button",{name:"Open websites_combined.json"}).click();
+  await expect(page.locator(".results-count")).toHaveText("3");
+  await expect(page.locator(".saved-file-banner")).toContainText("websites_combined.json");
+  await expect(page.locator(".business-table tbody tr")).toHaveCount(3);
+  await expect(page.getByRole("button",{name:"↓ JSON"})).toBeDisabled();
+  await expect(page.getByRole("button",{name:"↓ CSV"})).toBeDisabled();
+  await expect(page.locator(".leaflet-marker-pane .leaflet-marker-icon")).toHaveCount(0);
+  expect(liveSearchCalls).toBe(0);
+
+  await page.getByLabel("Filter by category group").selectOption("other");
+  await expect(page.locator(".business-table tbody tr")).toHaveCount(1);
+  await expect(page.locator(".business-table tbody tr")).toContainText("Quidi Vidi Brewery");
+  await page.locator(".business-table tbody tr").first().click();
+  await expect(page.getByLabel("Selected business details")).toContainText("Quidi Vidi Brewery");
+  await expect(page.getByLabel("Selected business details")).toContainText("35 Barrows Rd");
+  await expect(page.getByLabel("Selected business details")).toContainText("+1 709-738-4040");
+  await expect(page.getByLabel("Selected business details").getByRole("link",{name:/quidividibrewery/})).toBeVisible();
+
+  await page.getByLabel("Filter by category group").selectOption("all");
+  await page.getByLabel("Filter by website availability").selectOption("without");
+  await page.getByLabel("Filter by phone availability").selectOption("without");
+  await expect(page.locator(".business-table tbody tr")).toHaveCount(1);
+  await expect(page.locator(".business-table tbody tr")).toContainText("Small Company");
+  await page.getByLabel("Filter by email availability").selectOption("with");
+  await expect(page.locator(".business-table tbody tr")).toHaveCount(1);
+  await page.getByRole("button",{name:"Reset filters"}).click();
+  await expect(page.locator(".business-table tbody tr")).toHaveCount(3);
+  expect(liveSearchCalls).toBe(0);
+});
+
+test("missing public JSON gives a helpful error and local file picker still works",async({page})=>{
+  await page.route("**/websites_combined.json",async route=>route.fulfill({
+    status:404,body:"Not found",
+  }));
+  await page.goto("/");
+  await page.getByRole("button",{name:"Open websites_combined.json"}).click();
+  await expect(page.getByRole("alert")).toContainText("was not found");
+  await page.locator('input[type="file"]').setInputFiles({
+    name:"businesses-local.json",mimeType:"application/json",
+    buffer:Buffer.from(JSON.stringify({businesses:[{
+      id:"node/123",name:"Independent IT Company",category:"software",
+      categoryGroup:"services",website:"https://it.example.com",phone:null,email:null,
+      address:"Main Street",city:"Toronto",
+      location:{latitude:43.65,longitude:-79.3},
+      source:"openstreetmap",sourceUrl:"https://www.openstreetmap.org/node/123",
+      sources:["openstreetmap"],confidence:null,
+    }]})),
+  });
+  await expect(page.locator(".results-count")).toHaveText("1");
+  await expect(page.locator(".saved-file-banner")).toContainText("businesses-local.json");
+  await expect(page.getByRole("button",{name:"↓ JSON"})).toBeEnabled();
+  await expect(page.getByRole("button",{name:"↓ CSV"})).toBeEnabled();
+});
