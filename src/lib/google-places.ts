@@ -242,7 +242,12 @@ export function googleRequestBudget(
   category: Category, goal: SearchGoal, expanded: boolean, configured = GOOGLE_DEFAULT_MAX_REQUESTS,
 ): number {
   if (!expanded) return 1;
-  if (goal === "it" && configured === 0) return GOOGLE_IT_AUTO_MAX_REQUESTS;
+  if (goal === "it") {
+    return configured === 0 ? GOOGLE_IT_AUTO_MAX_REQUESTS :
+      Number.isFinite(configured)
+        ? Math.max(1,Math.min(GOOGLE_IT_AUTO_MAX_REQUESTS,Math.floor(configured)))
+        : GOOGLE_DEFAULT_MAX_REQUESTS;
+  }
   return googleLiveSearchPlan(category,true,configured,goal).length;
 }
 
