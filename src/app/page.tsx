@@ -231,7 +231,7 @@ export default function ExplorerPage() {
                 Geoapify Places <span>{geoapifyAvailable ? "Connected · recommended" : "API key needed"}</span>
               </label>
               <label className="source-option">
-                <input type="radio" name="source" disabled={!overtureAvailable>
+                <input type="radio" name="source" disabled={!overtureAvailable}
                   checked={provider === "overture"} onChange={() => selectProvider("overture")} />
                 Overture Maps <span>{overtureAvailable ? "Connected" : "Worker needed"}</span>
               </label>
