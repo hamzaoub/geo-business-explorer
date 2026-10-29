@@ -713,13 +713,15 @@ export default function ExplorerPage() {
             {result?.provider === "google" && (
               <div className="google-places-notice">
                 <strong className="google-maps-attribution" translate="no">Google Maps</strong>
-                <span>Live Google Places results · up to 20 per request · no bulk collection or JSON/CSV export.
-                  <strong className="google-call-count">
+                <span>{savedFileName
+                    ? "Displaying selected JSON file in memory · Google-sourced business details are not exportable."
+                    : "Live Google Places results · up to 20 per request · no bulk collection or JSON/CSV export."}
+                  {!savedFileName && <strong className="google-call-count">
                     {googleContactsEnabled
                       ? "Phone and website fields enabled (Enterprise billing); missing values mean Google did not provide them."
                       : "Phone and website fields are disabled. Set GOOGLE_PLACES_INCLUDE_CONTACTS=true in .env.local for higher-tier retrieval."}
                     {" "}Google Places does not provide business email addresses. City is taken from Google's structured locality when supplied.
-                  </strong>
+                  </strong>}
                   {result.requestCount && (
                     <strong className="google-call-count">
                       {result.requestCount} Google API requests · {result.count} unique places shown.
@@ -736,7 +738,7 @@ export default function ExplorerPage() {
                   )}
                   <a href="https://developers.google.com/maps/documentation/places/web-service/policies"
                     target="_blank" rel="noopener noreferrer"> View usage policies ↗</a>
-                  {geoapifyAvailable && (
+                  {!savedFileName && geoapifyAvailable && (
                     <button type="button" className="outline-button google-switch-provider"
                       onClick={() => {
                         selectProvider("geoapify");
@@ -745,16 +747,16 @@ export default function ExplorerPage() {
                       Find more businesses with Geoapify ↗
                     </button>
                   )}
-                  {!geoapifyAvailable && (
+                  {!savedFileName && !geoapifyAvailable && (
                     <span> Add GEOAPIFY_API_KEY for broader exportable coverage, or use OpenStreetMap below.</span>
                   )}
-                  <button type="button" className="outline-button google-switch-provider"
+                  {!savedFileName && <button type="button" className="outline-button google-switch-provider"
                     onClick={() => {
                       selectProvider("osm");
                       void runSearch(polygon, "osm", false, {goal:"general"});
                     }}>
                     Search exportable OpenStreetMap data ↗
-                  </button>
+                  </button>}
                 </span>
               </div>
             )}
