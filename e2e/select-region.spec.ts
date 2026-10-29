@@ -98,16 +98,22 @@ test("Google Places can be selected without exporting or plotting Google data on
   await page.route("**/api/capabilities", async route => {
     await route.fulfill({
       status: 200, contentType: "application/json",
-      body: JSON.stringify({providers:{osm:true,geoapify:false,overture:false,google:true},geocoder:false}),
+      body: JSON.stringify({providers:{osm:true,geoapify:true,overture:false,google:true},geocoder:false}),
     });
   });
   let requestedProvider: string | undefined;
   await page.route("**/api/search", async route => {
     requestedProvider = route.request().postDataJSON().provider;
+    const isGeoapify = requestedProvider === "geoapify";
     await route.fulfill({
       status: 200, contentType: "application/json",
       body: JSON.stringify({
-        businesses:[{
+        businesses: isGeoapify ? Array.from({length:35}, (_,i)=>({
+          id:"geoapify/"+i, name:"Geoapify Business "+i, category:"cafe",
+          categoryGroup:"food", website:null, phone:null, email:null, address:"Water Street",
+          city:null, location:{latitude:47.57,longitude:-52.7}, source:"geoapify",
+          sourceUrl:"https://www.geoapify.com/places-api/",sources:["geoapify"],confidence:null,
+        })) : [{
           id:"google/Example", name:"Google Example Cafe", category:"cafe",
           categoryGroup:"food", website:null, phone:null, email:null,
           address:"12 Water St, St John's, NL",
@@ -115,8 +121,13 @@ test("Google Places can be selected without exporting or plotting Google data on
           source:"google_places", sourceUrl:"https://www.google.com/maps/place/?q=place_id:Example",
           sources:["google_places"],confidence:null,
         }],
-        count:1,truncated:false,searchedAt:new Date().toISOString(),
-        provider:"google",sources:[{
+        count:isGeoapify?35:1,truncated:false,searchedAt:new Date().toISOString(),
+        provider:isGeoapify?"geoapify":"google",
+        sources:isGeoapify ? [{
+          name:"Geoapify Places",license:"ODbL",
+          attribution:"Powered by Geoapify · © OpenStreetMap contributors",
+          url:"https://www.geoapify.com/terms-and-conditions/",
+        }] : [{
           name:"Google Maps",license:"Google Maps Platform Terms",
           attribution:"Google Maps",url:"https://developers.google.com/maps/documentation/places/web-service/policies",
         }],
@@ -147,4 +158,9 @@ test("Google Places can be selected without exporting or plotting Google data on
   // The area selection rectangle is permitted, but no Google business markers
   // may be rendered on the OpenStreetMap base map.
   await expect(page.locator(".leaflet-marker-pane .leaflet-marker-icon")).toHaveCount(0);
+  await page.getByRole("button",{name:/Find more businesses with Geoapify/i}).click();
+  await expect(page.getByLabel("Business search JSON preview")).toContainText("Geoapify Business 34");
+  await expect(page.getByRole("button",{name:"↓ JSON"})).toBeEnabled();
+  await expect(page.getByRole("button",{name:"↓ CSV"})).toBeEnabled();
+  expect(requestedProvider).toBe("geoapify");
 });
