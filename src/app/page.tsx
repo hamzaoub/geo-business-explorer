@@ -3,7 +3,10 @@
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { buildJsonPayload, exportCsv, exportJson } from "@/lib/export";
-import type { Business, Category, Position, SearchProvider, SearchResponse, WebsiteFilter } from "@/lib/types";
+import type { Business, Category, Position, SearchGoal, SearchProvider, SearchResponse, WebsiteFilter } from "@/lib/types";
+import { IT_EMPLOYER_TARGETS } from "@/lib/target-presets";
+import { readSearchHistory, recordSearchHistory, reusableSnapshot,
+  removeSearchHistory, type SearchHistoryEntry, type SearchIdentity } from "@/lib/search-history";
 
 const MapCanvas = dynamic(() => import("@/components/MapCanvas"), {
   ssr: false,
@@ -22,6 +25,7 @@ const CATEGORIES: { id: Category; label: string; icon: string }[] = [
 export default function ExplorerPage() {
   const [polygon, setPolygon] = useState<Position[] | null>(null);
   const [category, setCategory] = useState<Category>("all");
+  const [goal, setGoal] = useState<SearchGoal>("general");
   const [provider, setProvider] = useState<SearchProvider>("osm");
   const [overtureAvailable, setOvertureAvailable] = useState(false);
   const [geoapifyAvailable, setGeoapifyAvailable] = useState(false);
@@ -40,6 +44,9 @@ export default function ExplorerPage() {
   const [result, setResult] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [history, setHistory] = useState<SearchHistoryEntry[]>([]);
+  const [historyPreview, setHistoryPreview] = useState<SearchHistoryEntry | null>(null);
+  const [historyNotice, setHistoryNotice] = useState<string | null>(null);
   const [textFilter, setTextFilter] = useState("");
   const [websiteFilter, setWebsiteFilter] = useState<WebsiteFilter>("all");
   const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(null);
@@ -48,6 +55,7 @@ export default function ExplorerPage() {
   const activeRequest = useRef<AbortController | null>(null);
   const resultsRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => () => { activeRequest.current?.abort(); }, []);
+  useEffect(() => { setHistory(readSearchHistory()); }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -99,22 +107,48 @@ export default function ExplorerPage() {
   async function runSearch(
     selectedArea: Position[] | null = polygon,
     selectedProvider: SearchProvider = provider,
+    refresh = false,
+    overrides: { goal?: SearchGoal; category?: Category; expanded?: boolean } = {},
   ) {
     if (!selectedArea) return;
     activeRequest.current?.abort();
-    const controller = new AbortController();
-    activeRequest.current = controller;
-    setLoading(true);
+    const selectedGoal = overrides.goal ?? goal;
+    const selectedCategory = overrides.category ?? category;
+    const expanded = overrides.expanded ?? googleExpanded;
+    const identity: SearchIdentity = {
+      polygon: selectedArea, provider: selectedProvider, category: selectedCategory,
+      goal: selectedGoal, googleExpanded: expanded,
+    };
     setResult(null);
     setError(null);
     setSelectedBusinessId(null);
+    setHistoryPreview(null);
+    setHistoryNotice(null);
+    if (!refresh) {
+      const cached = reusableSnapshot(identity);
+      if (cached) {
+        activeRequest.current = null;
+        setLoading(false);
+        setResult(cached);
+        setTextFilter("");
+        setWebsiteFilter("all");
+        setPage(1);
+        setViewMode("json");
+        setHistoryNotice("Loaded recent saved results — no API request.");
+        return;
+      }
+    }
+    const controller = new AbortController();
+    activeRequest.current = controller;
+    setLoading(true);
     try {
       const response = await fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          polygon: selectedArea, category, provider: selectedProvider,
-          googleExpanded: selectedProvider === "google" && googleExpanded,
+          polygon: selectedArea, category: selectedCategory, provider: selectedProvider,
+          goal: selectedGoal,
+          googleExpanded: selectedProvider === "google" && expanded,
         }),
         signal: controller.signal,
       });
@@ -125,7 +159,9 @@ export default function ExplorerPage() {
         throw new Error(message);
       }
       if (activeRequest.current !== controller) return;
-      setResult(json as SearchResponse);
+      const data = json as SearchResponse;
+      setResult(data);
+      setHistory(recordSearchHistory(identity,data));
       setTextFilter("");
       setWebsiteFilter("all");
       setPage(1);
@@ -138,6 +174,60 @@ export default function ExplorerPage() {
         activeRequest.current = null;
         setLoading(false);
       }
+    }
+  }
+
+  function openHistoryEntry(entry: SearchHistoryEntry, refresh = false) {
+    cancelSearch();
+    setProvider(entry.provider);
+    setCategory(entry.category);
+    setGoal(entry.goal);
+    setGoogleExpanded(entry.googleExpanded);
+    setPolygon(entry.polygon);
+    setResult(null);
+    setError(null);
+    setHistoryPreview(null);
+    setHistoryNotice(null);
+    setTextFilter("");
+    setWebsiteFilter("all");
+    setPage(1);
+    setSelectedBusinessId(null);
+    const lng = entry.polygon.map(p=>p[0]),lat = entry.polygon.map(p=>p[1]);
+    const west=Math.min(...lng),east=Math.max(...lng),south=Math.min(...lat),north=Math.max(...lat);
+    setFocusLocation({
+      latitude:(north+south)/2,longitude:(east+west)/2,
+      boundingbox:[south,north,west,east],
+    });
+    if (refresh) {
+      void runSearch(entry.polygon,entry.provider,true,{
+        goal:entry.goal,category:entry.category,expanded:entry.googleExpanded,
+      });
+      return;
+    }
+    const saved = reusableSnapshot(entry);
+    if (saved) {
+      setResult(saved);
+      setViewMode("json");
+      setHistoryNotice("Restored from your browser — 0 API requests.");
+    } else {
+      setHistoryPreview(entry);
+      setHistoryNotice(entry.provider === "google"
+        ? "Google history keeps Place IDs and search settings only. Refresh for live business details."
+        : "The older search has no reusable snapshot. Click Refresh for current results.");
+    }
+  }
+
+  function selectGoal(next: SearchGoal) {
+    cancelSearch();
+    setGoal(next);
+    setResult(null);
+    setError(null);
+    setHistoryPreview(null);
+    setHistoryNotice(null);
+    setSelectedBusinessId(null);
+    if (next === "it") {
+      setCategory("all");
+      setProvider("google");
     }
   }
 
@@ -171,6 +261,7 @@ export default function ExplorerPage() {
   function selectProvider(next: SearchProvider) {
     cancelSearch();
     setProvider(next);
+    if (next !== "google") setGoal("general");
     setResult(null);
     setError(null);
     setSelectedBusinessId(null);
@@ -178,6 +269,7 @@ export default function ExplorerPage() {
 
   function changePolygon(next: Position[] | null) {
     cancelSearch();
+    setHistoryNotice(null);
     setPolygon(next);
     setResult(null);
     setError(null);
@@ -218,8 +310,37 @@ export default function ExplorerPage() {
           </div>
 
           <div className="steps">
-            <div className="step-heading"><span className="step-number">02</span><strong>Business category</strong></div>
-            <div className="category-list" role="group" aria-label="Business category">
+            <div className="step-heading"><span className="step-number">02</span><strong>What are you looking for?</strong></div>
+            <div className="search-goals" role="group" aria-label="What are you looking for?">
+              <button type="button" className={goal === "general" ? "selected" : ""}
+                aria-pressed={goal === "general"} onClick={() => selectGoal("general")}>
+                <strong>◈ Any business</strong><small>Standard discovery</small>
+              </button>
+              <button type="button" className={goal === "it" ? "selected" : ""}
+                aria-pressed={goal === "it"} disabled={!googleAvailable}
+                title={!googleAvailable ? "Connect Google Places to enable IT search" : ""}
+                onClick={() => selectGoal("it")}>
+                <strong>⌘ IT employers</strong><small>16 business types</small>
+              </button>
+            </div>
+            {goal === "it" && (
+              <div className="target-preview">
+                <strong>{IT_EMPLOYER_TARGETS.length} IT employer target types</strong>
+                <p>Potential employers, not verified job vacancies.</p>
+                <div className="target-chip-list">
+                  {IT_EMPLOYER_TARGETS.map(item => (
+                    <span key={item.type} title={item.type}>{item.label}</span>
+                  ))}
+                </div>
+                <p>One lookup covers all types. Enable expanded Google search for broader coverage.</p>
+              </div>
+            )}
+          </div>
+          <div className="steps">
+            <div className="step-heading"><span className="step-number">03</span><strong>Business category</strong></div>
+            {goal === "it" ? (
+              <p className="goal-category-note">All 16 IT employer types selected automatically.</p>
+            ) : <div className="category-list" role="group" aria-label="Business category">
               {CATEGORIES.map((item) => (
                 <button
                   key={item.id}
@@ -233,11 +354,11 @@ export default function ExplorerPage() {
                   {category === item.id && <span className="category-check">✓</span>}
                 </button>
               ))}
-            </div>
+            </div>}
           </div>
 
           <div className="steps">
-            <div className="step-heading"><span className="step-number">03</span><strong>Data sources</strong></div>
+            <div className="step-heading"><span className="step-number">04</span><strong>Data sources</strong></div>
             <div className="source-list">
               <label className="source-option">
                 <input type="radio" name="source" checked={provider === "osm"}
@@ -263,9 +384,10 @@ export default function ExplorerPage() {
                       setError(null);
                     }} />
                   <span>
-                    <strong>Explore more Google categories</strong>
+                    <strong>{goal === "it" ? "Search each IT employer group" : "Explore more Google categories"}</strong>
                     <small>Opt in: {googleAutomatic ? "auto mode" : "configured budget"} ·
-                      up to {googleRequestBudget} paid Google Places requests (each up to 20).
+                      up to {goal === "it" ? Math.min(googleRequestBudget, 5) : googleRequestBudget}
+                      paid Google Places requests (up to 20 each).
                       No unlimited search, and no bulk export.</small>
                   </span>
                 </label>
@@ -287,10 +409,10 @@ export default function ExplorerPage() {
             <button
               type="button"
               className="search-button"
-              onClick={() => void runSearch()}
+              onClick={() => void runSearch(polygon,provider,true)}
               disabled={!polygon || loading}
             >
-              <span>{loading ? "Searching businesses…" : "Search area again"}</span>
+              <span>{loading ? "Searching businesses…" : "Refresh live results"}</span>
               <span>{loading ? "◌" : "↗"}</span>
             </button>
             {error && <div className="error-notice" role="alert">{error}</div>}
