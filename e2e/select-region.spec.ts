@@ -92,3 +92,56 @@ test("move-map mode does not start a selection", async ({ page }) => {
   expect(calls).toBe(0);
   await expect(page.locator(".map-feedback")).toContainText("Drag to move the map");
 });
+
+
+test("Google Places can be selected without exporting or plotting Google data on OSM", async ({page}) => {
+  await page.route("**/api/capabilities", async route => {
+    await route.fulfill({
+      status: 200, contentType: "application/json",
+      body: JSON.stringify({providers:{osm:true,geoapify:false,overture:false,google:true},geocoder:false}),
+    });
+  });
+  let requestedProvider: string | undefined;
+  await page.route("**/api/search", async route => {
+    requestedProvider = route.request().postDataJSON().provider;
+    await route.fulfill({
+      status: 200, contentType: "application/json",
+      body: JSON.stringify({
+        businesses:[{
+          id:"google/Example", name:"Google Example Cafe", category:"cafe",
+          categoryGroup:"food", website:null, phone:null, email:null,
+          address:"12 Water St, St John's, NL",
+          city:null, location:{latitude:47.57,longitude:-52.7},
+          source:"google_places", sourceUrl:"https://www.google.com/maps/place/?q=place_id:Example",
+          sources:["google_places"],confidence:null,
+        }],
+        count:1,truncated:false,searchedAt:new Date().toISOString(),
+        provider:"google",sources:[{
+          name:"Google Maps",license:"Google Maps Platform Terms",
+          attribution:"Google Maps",url:"https://developers.google.com/maps/documentation/places/web-service/policies",
+        }],
+        warnings:["Nearby search results are limited to 20 per request."],
+      }),
+    });
+  });
+  await page.goto("/");
+  await expect(page.locator(".leaflet-host")).toHaveClass(/leaflet-container/,{timeout:15000});
+  await expect(page.locator("input[name='source']").nth(2)).toBeEnabled();
+  await page.locator("input[name='source']").nth(2).check();
+  const map=page.locator(".leaflet-host");
+  const box=await map.boundingBox();
+  if (!box) throw new Error("Map missing");
+  await page.mouse.move(box.x+box.width*0.3,box.y+box.height*0.3);
+  await page.mouse.down();
+  await page.mouse.move(box.x+box.width*0.65,box.y+box.height*0.7,{steps:10});
+  await page.mouse.up();
+  await expect(page.getByText("Google Example Cafe")).toBeVisible();
+  await expect(page.locator(".google-maps-attribution")).toHaveText("Google Maps");
+  expect(requestedProvider).toBe("google");
+  await expect(page.getByRole("button",{name:"↓ JSON"})).toBeDisabled();
+  await expect(page.getByRole("button",{name:"↓ CSV"})).toBeDisabled();
+  await expect(page.getByLabel("Business search JSON preview")).toHaveCount(0);
+  // The area selection rectangle is permitted, but no Google business markers
+  // may be rendered on the OpenStreetMap base map.
+  await expect(page.locator(".leaflet-marker-pane .leaflet-marker-icon")).toHaveCount(0);
+});
