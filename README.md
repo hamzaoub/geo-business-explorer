@@ -8,12 +8,12 @@ A standalone Next.js application for geographical business discovery. Draw a pol
 
 This is **geographic selection, not image recognition**: the rectangle you drag on the map is converted to latitude/longitude boundaries. The backend searches geographic business databases and checks whether each record's mapped point is inside the selection.
 
-1. Navigate and zoom the interactive map to your city.
-2. Click **▣ Select region** in the map's lower-left controls.
-3. Press and hold the mouse, drag a rectangle around the desired streets, then release.
-4. GeoScout automatically starts its search. No extra click is required.
-5. Results open in the **JSON preview** tab. The browser shows the first 25 entries for speed; **↓ JSON** downloads all returned records, including complete field values and source attribution. The **Table** tab remains available.
-6. Choose another category or provider and click **Search area again** to refresh. You can also draw a new rectangle or resize the existing selection.
+1. Open the map, scroll to zoom, or choose **Move map** to pan.
+2. With **Select area** (the default), simply press and drag anywhere over the map, like cropping a screenshot. There is **no drawing toolbar or extra activation step**.
+3. Release the mouse. GeoScout displays **Searching…** in the map and starts geographic discovery.
+4. The map shows the number of businesses found or a clear error. Click **View JSON ↓** to jump to the results.
+5. The **JSON preview** tab displays the first 25 entries; **↓ JSON** downloads all returned records with provenance. The table and CSV export are also available.
+6. To search a new area, drag another rectangle. Click **Move map** whenever you want to pan; click **Select area** to return to crop-style selection.
 
 The default **All businesses** category includes names, phone numbers, websites, email addresses, addresses and geographic coordinates when the provider has these fields. Missing data is represented by `null`. This is not a guarantee that every Google Maps business or every real business in the area will be found. Large or dense areas can be truncated; the UI reports this. Avoid claiming complete geographic coverage from a single query.
 
@@ -38,7 +38,7 @@ npm run dev
 
 Open http://localhost:3000.
 
-Click **Select region** and drag a rectangle on the map; releasing the mouse automatically searches the selected geographical area. Review the JSON preview or table, then export results. You can also use the polygon toolbar, or **Use visible area**.
+Drag directly on the map to draw a rectangle. Release to search automatically, then view the JSON or table and export. Use the two-state **Select area / Move map** control to navigate; the app no longer requires Leaflet Draw.
 
 Optional configuration: copy .env.example to .env.local and set OVERPASS_URL to your own or contracted Overpass server; provide OVERPASS_CONTACT_EMAIL for service identification.
 
@@ -54,7 +54,7 @@ npm start          # serve built app
 
 ## What is included
 
-- Click-to-draw editable and removable polygon / rectangle, plus a visible-area shortcut.
+- Direct pointer-drag geographic rectangle selection with no drawing plugin or toolbar; clear-and-redraw support.
 - Real server-side Overpass search across named shops, amenities, offices, crafts, healthcare and tourism features.
 - Bounding-box query followed by exact polygon filtering against mapped feature coordinates.
 - Business name, category, phone, website, email, available address, coordinates, and direct OSM source link.
@@ -148,3 +148,11 @@ This project lives at the root of its own repository, separate from the original
 ### CI status
 
 The repository includes a GitHub Actions workflow that runs TypeScript checks, unit tests, a Next.js build, and Python worker tests. If GitHub Actions fails before executing steps (for example due to runner availability or billing/account restrictions), the check does **not** validate the code. Run commands locally before deployment.
+
+### Troubleshooting UI errors
+
+- The map no longer imports `leaflet-draw`: the previous `L.Draw.Event` error is removed at the source. The map starts in **Select area** mode; dragging pans only in **Move map** mode.
+- The React hydration warning about `className=\"kapture-loaded\"` is caused by a browser extension modifying the body before hydration. `suppressHydrationWarning` is scoped to the body attribute to avoid a misleading warning; disable the extension when debugging unrelated issues.
+- A browser extension's `Could not establish connection. Receiving end does not exist` is unrelated to GeoScout.
+- Favicon is included in `public/favicon.svg`.
+- The search may fail because the public Overpass instance is overloaded; errors are shown on the map and results panel.

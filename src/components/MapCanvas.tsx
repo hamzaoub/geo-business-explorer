@@ -4,13 +4,25 @@ import { useEffect, useRef, useState } from "react";
 import type * as Leaflet from "leaflet";
 import type { Business, Position } from "@/lib/types";
 
+type MapMode = "select" | "move";
+type SearchState = "idle" | "searching" | "success" | "error";
+
 interface Props {
   polygon: Position[] | null;
   businesses: Business[];
   selectedBusinessId: string | null;
   focusLocation?: { latitude: number; longitude: number; boundingbox: number[] | null } | null;
+  searchState?: SearchState;
+  searchError?: string | null;
   onPolygonChange: (polygon: Position[] | null) => void;
   onSelectBusiness: (id: string) => void;
+  onViewResults?: () => void;
+}
+
+interface Gesture {
+  pointerId: number;
+  start: Leaflet.Point;
+  rectangle: Leaflet.Rectangle | null;
 }
 
 function escapeHtml(input: string): string {
@@ -19,213 +31,273 @@ function escapeHtml(input: string): string {
   })[char] || char);
 }
 
+function rectangleRing(bounds: Leaflet.LatLngBounds): Position[] {
+  const { lat: north, lng: west } = bounds.getNorthWest();
+  const { lat: south, lng: east } = bounds.getSouthEast();
+  return [
+    [west, north], [east, north], [east, south], [west, south], [west, north],
+  ];
+}
+
 export default function MapCanvas({
-  polygon, businesses, selectedBusinessId, focusLocation, onPolygonChange, onSelectBusiness,
+  polygon, businesses, selectedBusinessId, focusLocation,
+  searchState = "idle", searchError = null,
+  onPolygonChange, onSelectBusiness, onViewResults,
 }: Props) {
   const elementRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Leaflet.Map | null>(null);
   const leafletRef = useRef<typeof Leaflet | null>(null);
-  const drawnRef = useRef<Leaflet.FeatureGroup | null>(null);
-  const rectangleDrawRef = useRef<Leaflet.Draw.Rectangle | null>(null);
-  const [drawingRectangle, setDrawingRectangle] = useState(false);
+  const selectionRef = useRef<Leaflet.Rectangle | null>(null);
+  const gestureRef = useRef<Gesture | null>(null);
   const markersRef = useRef<Leaflet.LayerGroup | null>(null);
   const onPolygonRef = useRef(onPolygonChange);
   const onSelectRef = useRef(onSelectBusiness);
+  const modeRef = useRef<MapMode>("select");
+
+  const [mode, setMode] = useState<MapMode>("select");
   const [ready, setReady] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [mapError, setMapError] = useState<string | null>(null);
+  const [tip, setTip] = useState("Drag anywhere on the map to select a region");
 
   useEffect(() => { onPolygonRef.current = onPolygonChange; }, [onPolygonChange]);
   useEffect(() => { onSelectRef.current = onSelectBusiness; }, [onSelectBusiness]);
 
   useEffect(() => {
     let disposed = false;
+    let localMap: Leaflet.Map | null = null;
+    let removeListeners: (() => void) | null = null;
+
     async function initialize() {
+      // No leaflet-draw plugin: native pointer events make selection one direct drag.
       const L = await import("leaflet");
-      await import("leaflet-draw");
-      if (disposed || !elementRef.current || mapRef.current) return;
-      leafletRef.current = L;
-      const map = L.map(elementRef.current, { zoomControl: false, preferCanvas: true })
+      const element = elementRef.current;
+      if (disposed || !element || mapRef.current) return;
+
+      const map = L.map(element, { zoomControl: false, preferCanvas: true })
         .setView([47.565, -52.77], 11);
+      localMap = map;
       mapRef.current = map;
+      leafletRef.current = L;
+      map.dragging.disable();
+      map.boxZoom.disable();
+      map.doubleClickZoom.enable();
       L.control.zoom({ position: "bottomright" }).addTo(map);
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 19,
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a>',
       }).addTo(map);
-      const drawn = new L.FeatureGroup();
-      const markers = new L.LayerGroup();
-      drawn.addTo(map);
-      markers.addTo(map);
-      drawnRef.current = drawn;
-      markersRef.current = markers;
-      const drawing = new L.Control.Draw({
-        position: "topright",
-        draw: {
-          polygon: {
-            allowIntersection: false,
-            showArea: true,
-            shapeOptions: { color: "#0f9a81", weight: 3, fillOpacity: 0.13 },
-          },
-          rectangle: { shapeOptions: { color: "#0f9a81", weight: 3, fillOpacity: 0.13 } },
-          polyline: false, circle: false, circlemarker: false, marker: false,
-        },
-        edit: { featureGroup: drawn, remove: true },
-      });
-      map.addControl(drawing);
 
-      const syncPolygon = (layer: Leaflet.Layer) => {
-        const feature = (layer as Leaflet.Polygon).toGeoJSON();
-        if (feature.geometry.type !== "Polygon") return;
-        const ring = feature.geometry.coordinates[0];
-        onPolygonRef.current(ring.map((pair) => [pair[0], pair[1]] as Position));
+      const markers = L.layerGroup().addTo(map);
+      markersRef.current = markers;
+
+      const pointFromEvent = (event: PointerEvent) => {
+        const box = element.getBoundingClientRect();
+        return L.point(
+          Math.max(0, Math.min(element.clientWidth, event.clientX - box.left)),
+          Math.max(0, Math.min(element.clientHeight, event.clientY - box.top)),
+        );
       };
-      map.on(L.Draw.Event.CREATED, (event) => {
-        const layer = (event as Leaflet.DrawEvents.Created).layer;
-        drawn.clearLayers();
-        drawn.addLayer(layer);
-        rectangleDrawRef.current = null;
-        setDrawingRectangle(false);
-        syncPolygon(layer);
-      });
-      map.on(L.Draw.Event.DRAWSTOP, () => {
-        rectangleDrawRef.current = null;
-        setDrawingRectangle(false);
-      });
-      map.on(L.Draw.Event.EDITED, () => {
-        drawn.eachLayer((layer) => syncPolygon(layer));
-      });
-      map.on(L.Draw.Event.DELETED, () => {
-        if (drawn.getLayers().length === 0) onPolygonRef.current(null);
-      });
+
+      const clearDraft = () => {
+        const gesture = gestureRef.current;
+        if (gesture?.rectangle && map.hasLayer(gesture.rectangle)) {
+          map.removeLayer(gesture.rectangle);
+        }
+        gestureRef.current = null;
+        setDragging(false);
+      };
+
+      const handleDown = (event: PointerEvent) => {
+        if (modeRef.current !== "select" || event.button !== 0 ||
+            !event.isPrimary || gestureRef.current) return;
+        const target = event.target;
+        if (target instanceof Element &&
+            target.closest(".leaflet-control, .leaflet-popup")) return;
+        event.preventDefault();
+        try { element.setPointerCapture(event.pointerId); } catch { /* older browsers */ }
+        gestureRef.current = { pointerId: event.pointerId, start: pointFromEvent(event), rectangle: null };
+      };
+
+      const handleMove = (event: PointerEvent) => {
+        const gesture = gestureRef.current;
+        if (!gesture || event.pointerId !== gesture.pointerId) return;
+        const current = pointFromEvent(event);
+        if (!gesture.rectangle &&
+            Math.hypot(current.x - gesture.start.x, current.y - gesture.start.y) < 7) return;
+        const bounds = L.latLngBounds(
+          map.containerPointToLatLng(gesture.start),
+          map.containerPointToLatLng(current),
+        );
+        if (!gesture.rectangle) {
+          if (selectionRef.current) map.removeLayer(selectionRef.current);
+          selectionRef.current = null;
+          gesture.rectangle = L.rectangle(bounds, {
+            color: "#0c9b81", weight: 3, fillColor: "#26c69a",
+            fillOpacity: 0.18, interactive: false,
+          }).addTo(map);
+          setDragging(true);
+          setTip("Release to discover businesses in this area");
+        } else {
+          gesture.rectangle.setBounds(bounds);
+        }
+      };
+
+      const handleUp = (event: PointerEvent) => {
+        const gesture = gestureRef.current;
+        if (!gesture || event.pointerId !== gesture.pointerId) return;
+        try {
+          if (element.hasPointerCapture(event.pointerId)) element.releasePointerCapture(event.pointerId);
+        } catch { /* browser can release capture automatically */ }
+
+        const current = pointFromEvent(event);
+        gestureRef.current = null;
+        setDragging(false);
+        if (!gesture.rectangle ||
+            Math.abs(current.x - gesture.start.x) < 8 ||
+            Math.abs(current.y - gesture.start.y) < 8) {
+          if (gesture.rectangle && map.hasLayer(gesture.rectangle)) map.removeLayer(gesture.rectangle);
+          setTip("Drag a wider rectangle to select a region");
+          return;
+        }
+        selectionRef.current = gesture.rectangle;
+        setTip("Area selected — finding businesses…");
+        onPolygonRef.current(rectangleRing(gesture.rectangle.getBounds()));
+      };
+
+      const handleCancel = () => clearDraft();
+
+      element.addEventListener("pointerdown", handleDown);
+      element.addEventListener("pointermove", handleMove);
+      element.addEventListener("pointerup", handleUp);
+      element.addEventListener("pointercancel", handleCancel);
+      removeListeners = () => {
+        element.removeEventListener("pointerdown", handleDown);
+        element.removeEventListener("pointermove", handleMove);
+        element.removeEventListener("pointerup", handleUp);
+        element.removeEventListener("pointercancel", handleCancel);
+      };
+
       setReady(true);
-      setTimeout(() => { if (!disposed) map.invalidateSize(); }, 100);
+      window.setTimeout(() => { if (!disposed) map.invalidateSize(); }, 120);
     }
-    void initialize();
+
+    void initialize().catch((error: unknown) => {
+      if (!disposed) {
+        console.error("Map initialization failed", error);
+        setMapError("The map could not load. Refresh the page and try again.");
+      }
+    });
     return () => {
       disposed = true;
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
-      }
+      removeListeners?.();
+      localMap?.remove();
+      mapRef.current = null;
       leafletRef.current = null;
-      rectangleDrawRef.current?.disable();
-      rectangleDrawRef.current = null;
-      drawnRef.current = null;
       markersRef.current = null;
+      selectionRef.current = null;
+      gestureRef.current = null;
     };
   }, []);
 
   useEffect(() => {
-    if (!ready || !markersRef.current || !leafletRef.current) return;
+    const map = mapRef.current;
+    if (!map) return;
+    modeRef.current = mode;
+    if (mode === "select") map.dragging.disable();
+    else map.dragging.enable();
+    setTip(mode === "select"
+      ? "Drag anywhere on the map to select a region"
+      : "Drag to move the map; scroll or use + / − to zoom");
+  }, [mode, ready]);
+
+  useEffect(() => {
+    if (!ready || !mapRef.current || !leafletRef.current || !markersRef.current) return;
     const L = leafletRef.current;
-    markersRef.current.clearLayers();
-    // Avoid overwhelming the browser on large searches.
+    const markers = markersRef.current;
+    markers.clearLayers();
     businesses.slice(0, 700).forEach((business) => {
       const selected = business.id === selectedBusinessId;
       const marker = L.circleMarker([business.location.latitude, business.location.longitude], {
         radius: selected ? 9 : 5,
         weight: selected ? 3 : 1.5,
-        color: "#fff",
-        fillColor: selected ? "#143c39" : "#079984",
-        fillOpacity: 0.95,
+        color: "#fff", fillColor: selected ? "#143c39" : "#079984", fillOpacity: 0.95,
       });
-      const website = business.website
-        ? '<br><span style="color:#087b6c">Website available</span>' : "";
       marker.bindPopup(
-        '<strong>' + escapeHtml(business.name) + '</strong><br>' +
-        escapeHtml(business.category) + website,
+        "<strong>" + escapeHtml(business.name) + "</strong><br>" +
+        escapeHtml(business.category) +
+        (business.website ? '<br><span style="color:#087b6c">Website listed</span>' : ""),
       );
       marker.on("click", () => onSelectRef.current(business.id));
-      marker.addTo(markersRef.current!);
+      marker.addTo(markers);
     });
   }, [businesses, selectedBusinessId, ready]);
 
   useEffect(() => {
-    if (!ready || !mapRef.current || !leafletRef.current || !focusLocation) return;
+    const map = mapRef.current;
+    if (!ready || !map || !focusLocation) return;
     const { latitude, longitude, boundingbox } = focusLocation;
     if (Array.isArray(boundingbox) && boundingbox.length === 4 &&
         boundingbox.every(Number.isFinite) && boundingbox[0] < boundingbox[1] &&
         boundingbox[2] < boundingbox[3]) {
-      mapRef.current.fitBounds([
-        [boundingbox[0], boundingbox[2]],
-        [boundingbox[1], boundingbox[3]],
-      ], { padding: [20, 20], maxZoom: 14 });
+      map.fitBounds([[boundingbox[0], boundingbox[2]], [boundingbox[1], boundingbox[3]]], {
+        padding: [24, 24], maxZoom: 14,
+      });
     } else {
-      mapRef.current.setView([latitude, longitude], 12);
+      map.setView([latitude, longitude], 12);
     }
   }, [ready, focusLocation]);
 
-  function beginScreenshotSelection() {
-    const map = mapRef.current;
-    const L = leafletRef.current;
-    if (!map || !L || drawingRectangle) return;
-    // Like a screenshot selection: press, drag, and release to define the search box.
-    // Actual map coordinates (not screenshot pixels) are sent to the search API.
-    // @types/leaflet-draw expects a DrawMap with static members on the instance;
-// at runtime Leaflet.Draw accepts the regular Leaflet map.
-    const rectangle = new L.Draw.Rectangle(
-      map as unknown as ConstructorParameters<typeof L.Draw.Rectangle>[0], {
-      shapeOptions: { color: "#0f9a81", weight: 3, fillOpacity: 0.13 },
-    });
-    rectangleDrawRef.current = rectangle;
-    setDrawingRectangle(true);
-    rectangle.enable();
-  }
-
-  function useVisibleArea() {
-    const map = mapRef.current;
-    const L = leafletRef.current;
-    const drawn = drawnRef.current;
-    if (!map || !L || !drawn) return;
-    const bounds = map.getBounds();
-    const layer = L.rectangle(bounds, {
-      color: "#0f9a81", weight: 3, fillOpacity: 0.13,
-    });
-    drawn.clearLayers();
-    drawn.addLayer(layer);
-    const nw = bounds.getNorthWest();
-    const ne = bounds.getNorthEast();
-    const se = bounds.getSouthEast();
-    const sw = bounds.getSouthWest();
-    const ring: Position[] = [
-      [nw.lng, nw.lat], [ne.lng, ne.lat], [se.lng, se.lat],
-      [sw.lng, sw.lat], [nw.lng, nw.lat],
-    ];
-    onPolygonRef.current(ring);
-  }
-
   function clearArea() {
-    rectangleDrawRef.current?.disable();
-    rectangleDrawRef.current = null;
-    setDrawingRectangle(false);
-    drawnRef.current?.clearLayers();
+    const map = mapRef.current;
+    if (map && selectionRef.current) map.removeLayer(selectionRef.current);
+    selectionRef.current = null;
+    setTip("Drag anywhere on the map to select a region");
     onPolygonRef.current(null);
   }
 
   return (
     <div className="map-shell">
-      <div ref={elementRef} className="leaflet-host" aria-label="Interactive map of businesses" />
+      <div
+        ref={elementRef}
+        className={"leaflet-host " + (mode === "select" ? "map-select-cursor" : "map-move-cursor")}
+        aria-label="Interactive business map; drag to select a geographic region"
+      />
       <div className="map-overlay top-left">
-        <span className="live-dot" /> MAP EXPLORER
+        <span className="live-dot" /> SELECT AN AREA
       </div>
-      <div className="map-overlay bottom-left">
-        <button type="button" className={"map-action " + (drawingRectangle ? "drawing" : "")}
-          onClick={beginScreenshotSelection} disabled={!ready || drawingRectangle}
-          aria-label="Select region by dragging a rectangle on the map">
-          {drawingRectangle ? "Drag to select…" : "▣ Select region"}
+      <div className="map-mode-picker" role="group" aria-label="Map interaction mode">
+        <button type="button" className={mode === "select" ? "active" : ""}
+          aria-pressed={mode === "select"} onClick={() => setMode("select")}>
+          ▣ Select area
         </button>
-        <button type="button" className="map-action secondary" onClick={useVisibleArea} disabled={!ready}>
-          Use visible area
-        </button>
-        <button type="button" className="map-action secondary" onClick={clearArea} disabled={!polygon}>
-          Clear selection
+        <button type="button" className={mode === "move" ? "active" : ""}
+          aria-pressed={mode === "move"} onClick={() => setMode("move")}>
+          ✥ Move map
         </button>
       </div>
-      <div className="map-help">
-        {drawingRectangle
-          ? "Click and drag over the map. Release to search automatically."
-          : polygon
-            ? "Area selected · Businesses search automatically · Resize using edit controls"
-            : "Click Select region, then drag a rectangle across the map"}
+      {polygon && (
+        <button type="button" className="map-clear-button" onClick={clearArea}>✕ Clear area</button>
+      )}
+      <div className="map-feedback" role="status" aria-live="polite">
+        {mapError ? (
+          <span className="map-feedback-error">{mapError}</span>
+        ) : !ready ? (
+          <span>Loading map…</span>
+        ) : dragging ? (
+          <span className="map-feedback-active">▣ Release to search this region</span>
+        ) : searchState === "searching" ? (
+          <span className="map-feedback-active"><span className="map-spinner" /> Searching the selected area…</span>
+        ) : searchState === "error" ? (
+          <span className="map-feedback-error">⚠ {searchError || "Business search failed. Try again."}</span>
+        ) : searchState === "success" ? (
+          <span className="map-feedback-success">
+            ✓ {businesses.length} businesses found
+            <button type="button" onClick={onViewResults}>View JSON ↓</button>
+          </span>
+        ) : (
+          <span>{tip}</span>
+        )}
       </div>
     </div>
   );

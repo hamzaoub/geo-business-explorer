@@ -38,8 +38,8 @@ export async function POST(request: NextRequest) {
   if (cooldowns.size > 2000) {
     for (const [id, at] of cooldowns) if (now - at > 60_000) cooldowns.delete(id);
   }
-  if (now - (cooldowns.get(key) ?? 0) < 12_000) {
-    return respondError("Please wait 12 seconds before starting another search.", 429);
+  if (now - (cooldowns.get(key) ?? 0) < 6_000) {
+    return respondError("Please wait a few seconds before starting another search.", 429);
   }
 
   try {

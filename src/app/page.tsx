@@ -40,6 +40,7 @@ export default function ExplorerPage() {
   const [page, setPage] = useState(1);
   const [viewMode, setViewMode] = useState<"table" | "json">("json");
   const activeRequest = useRef<AbortController | null>(null);
+  const resultsRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => () => { activeRequest.current?.abort(); }, []);
 
   useEffect(() => {
@@ -188,7 +189,7 @@ export default function ExplorerPage() {
 
           <div className="steps">
             <div className="step-heading"><span className="step-number">01</span><strong>Select an area</strong></div>
-            <p>Click <strong>Select region</strong> on the map, then click and drag your mouse like a screenshot crop. Release to search automatically.</p>
+            <p><strong>Drag directly on the map</strong> to select your area. The search starts when you release the mouse. Use Move map when you want to navigate.</p>
             <div className={"selection-indicator " + (polygon ? "active" : "")}>
               <span>{polygon ? "✓" : "⌖"}</span>
               <span>{loading ? "Scanning your selected area…" : polygon ? "Area selected · search automatic" : "No area selected yet"}</span>
@@ -274,10 +275,13 @@ export default function ExplorerPage() {
               focusLocation={focusLocation}
               onPolygonChange={changePolygon}
               onSelectBusiness={setSelectedBusinessId}
+              searchState={loading ? "searching" : error ? "error" : result ? "success" : "idle"}
+              searchError={error}
+              onViewResults={() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
             />
           </div>
 
-          <div className="results">
+          <div className="results" ref={resultsRef}>
             <div className="results-head">
               <div>
                 <span className="section-kicker">YOUR DISCOVERY LIST</span>
@@ -343,11 +347,24 @@ export default function ExplorerPage() {
               </div>
             )}
 
-            {!result ? (
+            {loading ? (
+              <div className="empty-state scan-progress" role="status" aria-live="polite">
+                <div className="scan-progress-wheel" />
+                <strong>Searching businesses inside your selection…</strong>
+                <p>Loading OpenStreetMap data. Larger areas may take longer.</p>
+              </div>
+            ) : error ? (
+              <div className="empty-state" role="alert">
+                <div className="empty-icon">!</div>
+                <strong>Could not retrieve businesses</strong>
+                <p>{error}</p>
+                <button type="button" className="outline-button" onClick={() => void runSearch()}>Try again</button>
+              </div>
+            ) : !result ? (
               <div className="empty-state">
                 <div className="empty-icon">⌖</div>
                 <strong>Every location holds a possibility.</strong>
-                <p>Click Select region on the map, drag over an area, and release. GeoScout will search and display the JSON automatically.</p>
+                <p>Drag across the map to select a region. Release the mouse to search automatically and display JSON.</p>
               </div>
             ) : filtered.length === 0 ? (
               <div className="empty-state">
