@@ -23,8 +23,9 @@ function safeUrl(value: unknown): string | null {
   } catch { return null; }
 }
 function sourceName(value: unknown, id: string): SourceName | null {
-  if (SUPPORTED_SOURCES.has(String(value))) return value as SourceName;
+  // A Google place ID must never be relabeled as exportable OSM/Geoapify content.
   if (id.startsWith("google/")) return "google_places";
+  if (SUPPORTED_SOURCES.has(String(value))) return value as SourceName;
   if (id.startsWith("geoapify/")) return "geoapify";
   if (id.startsWith("overture/")) return "overture";
   if (id.startsWith("node/") || id.startsWith("way/") || id.startsWith("relation/")) {
