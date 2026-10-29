@@ -102,8 +102,11 @@ test("Google Places can be selected without exporting or plotting Google data on
     });
   });
   let requestedProvider: string | undefined;
+  let expandedOption: boolean | undefined;
   await page.route("**/api/search", async route => {
-    requestedProvider = route.request().postDataJSON().provider;
+    const request = route.request().postDataJSON();
+    requestedProvider = request.provider;
+    expandedOption = request.googleExpanded;
     const isGeoapify = requestedProvider === "geoapify";
     await route.fulfill({
       status: 200, contentType: "application/json",
@@ -139,6 +142,8 @@ test("Google Places can be selected without exporting or plotting Google data on
   await expect(page.locator(".leaflet-host")).toHaveClass(/leaflet-container/,{timeout:15000});
   await expect(page.locator("input[name='source']").nth(2)).toBeEnabled();
   await page.locator("input[name='source']").nth(2).check();
+  await expect(page.getByLabel("Expanded Google live search")).not.toBeChecked();
+  await page.getByLabel("Expanded Google live search").check();
   const map=page.locator(".leaflet-host");
   // Selecting a source in the sidebar scrolls the viewport down.
   // Bring the map back onscreen before issuing mouse coordinates.
@@ -152,6 +157,7 @@ test("Google Places can be selected without exporting or plotting Google data on
   await expect(page.getByText("Google Example Cafe")).toBeVisible();
   await expect(page.locator(".google-maps-attribution")).toHaveText("Google Maps");
   expect(requestedProvider).toBe("google");
+  expect(expandedOption).toBe(true);
   await expect(page.getByRole("button",{name:"↓ JSON"})).toBeDisabled();
   await expect(page.getByRole("button",{name:"↓ CSV"})).toBeDisabled();
   await expect(page.getByLabel("Business search JSON preview")).toHaveCount(0);
