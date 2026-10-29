@@ -6,6 +6,7 @@ import { IT_EMPLOYER_TYPES } from "./target-presets";
 // Google Places API (New): bounded, user-opted-in multi-category live discovery.
 // No grid harvesting, prefetch, persistence, cross-provider mixing or export.
 export const GOOGLE_NEARBY_URL = "https://places.googleapis.com/v1/places:searchNearby";
+export const GOOGLE_TEXT_URL = "https://places.googleapis.com/v1/places:searchText";
 export const GOOGLE_MAX_RESULTS = 20;
 export const GOOGLE_FIELD_MASK_BASE = [
   "places.id", "places.displayName", "places.formattedAddress",
@@ -150,32 +151,53 @@ export function googlePlaceToBusiness(
 }
 
 
-// 0 in GOOGLE_PLACES_MAX_REQUESTS means: the complete *finite* catalogue
-// of distinct live category searches. It NEVER means unlimited API calls.
-export const GOOGLE_DEFAULT_MAX_REQUESTS = 6;
-export const GOOGLE_MAX_LIVE_REQUESTS = 24;
-type GoogleRequestPlan = { category: Category; types?: string[]; label: string };
 
-const LIVE_CATEGORY_INTENTS: GoogleRequestPlan[] = [
-  { category:"food", types:["restaurant","cafe"], label:"Restaurants and cafés" },
-  { category:"food", types:["bakery","bar"], label:"Bakeries and bars" },
-  { category:"food", types:["fast_food_restaurant","coffee_shop"], label:"Quick service and coffee" },
-  { category:"retail", types:["store","shopping_mall"], label:"Shops and shopping centres" },
-  { category:"retail", types:["supermarket","convenience_store"], label:"Groceries and convenience" },
-  { category:"retail", types:["clothing_store","electronics_store"], label:"Fashion and electronics" },
-  { category:"retail", types:["furniture_store","hardware_store"], label:"Furniture and hardware" },
-  { category:"services", types:["corporate_office","lawyer"], label:"Offices and legal services" },
-  { category:"services", types:["accounting","insurance_agency"], label:"Accounting and insurance" },
-  { category:"services", types:["real_estate_agency"], label:"Real estate agencies" },
-  { category:"services", types:["car_repair","car_dealer"], label:"Automotive services" },
-  { category:"services", types:["beauty_salon","hair_care"], label:"Beauty and hair salons" },
-  { category:"services", types:["bank","post_office"], label:"Financial and postal services" },
-  { category:"health", types:["hospital","pharmacy"], label:"Hospitals and pharmacies" },
-  { category:"health", types:["doctor","dentist"], label:"Doctors and dentists" },
-  { category:"stay", types:["hotel","motel"], label:"Hotels and motels" },
-  { category:"stay", types:["hostel","guest_house"], label:"Hostels and guest houses" },
+// Google Places API (New) live job discovery. The Google IT preset sends one
+// broad type search, four focused type searches, then a finite set of topical
+// Text Searches (New). There is no geographic tiling, crawling, persistent
+// Places content storage, or export.
+export const GOOGLE_DEFAULT_MAX_REQUESTS = 6;
+export const GOOGLE_IT_AUTO_MAX_REQUESTS = 35; // 5 Nearby + 10 Text × 3 pages.
+export const GOOGLE_MAX_LIVE_REQUESTS = GOOGLE_IT_AUTO_MAX_REQUESTS;
+
+export const IT_TECH_TEXT_QUERIES = [
+  "software development company",
+  "IT consulting services",
+  "web development agency",
+  "SaaS software company",
+  "managed IT services company",
+  "cybersecurity company",
+  "cloud computing services company",
+  "artificial intelligence software company",
+  "data analytics company",
+  "fintech software company",
+] as const;
+
+export type GoogleRequestPlan =
+  | { mode: "nearby"; category: Category; types?: string[]; label: string }
+  | { mode: "text"; category: "all"; textQuery: string; label: string; pageToken?: string; pageNumber: number };
+
+const LIVE_CATEGORY_INTENTS: Extract<GoogleRequestPlan,{mode:"nearby"}>[] = [
+  { mode:"nearby", category:"food", types:["restaurant","cafe"], label:"Restaurants and cafés" },
+  { mode:"nearby", category:"food", types:["bakery","bar"], label:"Bakeries and bars" },
+  { mode:"nearby", category:"food", types:["fast_food_restaurant","coffee_shop"], label:"Quick service and coffee" },
+  { mode:"nearby", category:"retail", types:["store","shopping_mall"], label:"Shops and shopping centres" },
+  { mode:"nearby", category:"retail", types:["supermarket","convenience_store"], label:"Groceries and convenience" },
+  { mode:"nearby", category:"retail", types:["clothing_store","electronics_store"], label:"Fashion and electronics" },
+  { mode:"nearby", category:"retail", types:["furniture_store","hardware_store"], label:"Furniture and hardware" },
+  { mode:"nearby", category:"services", types:["corporate_office","lawyer"], label:"Offices and legal services" },
+  { mode:"nearby", category:"services", types:["accounting","insurance_agency"], label:"Accounting and insurance" },
+  { mode:"nearby", category:"services", types:["real_estate_agency"], label:"Real estate agencies" },
+  { mode:"nearby", category:"services", types:["car_repair","car_dealer"], label:"Automotive services" },
+  { mode:"nearby", category:"services", types:["beauty_salon","hair_care"], label:"Beauty and hair salons" },
+  { mode:"nearby", category:"services", types:["bank","post_office"], label:"Financial and postal services" },
+  { mode:"nearby", category:"health", types:["hospital","pharmacy"], label:"Hospitals and pharmacies" },
+  { mode:"nearby", category:"health", types:["doctor","dentist"], label:"Doctors and dentists" },
+  { mode:"nearby", category:"stay", types:["hotel","motel"], label:"Hotels and motels" },
+  { mode:"nearby", category:"stay", types:["hostel","guest_house"], label:"Hostels and guest houses" },
 ];
 
+/** Finite first-page search intents. Text Search pages are queued only if Google returns nextPageToken. */
 export function googleLiveSearchPlan(
   category: Category,
   expanded = false,
@@ -183,40 +205,70 @@ export function googleLiveSearchPlan(
   goal: SearchGoal = "general",
 ): GoogleRequestPlan[] {
   if (goal === "it") {
-    const base: GoogleRequestPlan = { category: "all", types: IT_EMPLOYER_TYPES, label: "All IT employer targets" };
+    const base: GoogleRequestPlan = {
+      mode:"nearby", category:"all", types: IT_EMPLOYER_TYPES, label:"16 IT employer types",
+    };
     if (!expanded) return [base];
-    // The exact 16 requested Google business types are searched in five
-    // distinct, opt-in Nearby requests. All 16 are covered even at default budget 6.
-    const groups = Array.from({length: Math.ceil(IT_EMPLOYER_TYPES.length / 4)}, (_,i)=>({
-      category: "all" as Category,
-      types: IT_EMPLOYER_TYPES.slice(i*4,i*4+4),
-      label: "IT employers group " + (i+1),
+    const groups: GoogleRequestPlan[] = Array.from(
+      {length: Math.ceil(IT_EMPLOYER_TYPES.length / 4)}, (_,i) => ({
+        mode:"nearby", category:"all", types:IT_EMPLOYER_TYPES.slice(i*4,i*4+4),
+        label:"IT employer type group "+(i+1),
+      }),
+    );
+    const topics: GoogleRequestPlan[] = IT_TECH_TEXT_QUERIES.map(textQuery => ({
+      mode:"text", category:"all", textQuery, label:textQuery, pageNumber:1,
     }));
-    const plan = [base,...groups];
-    const limit = maxRequests === 0 ? plan.length : Number.isFinite(maxRequests)
+    const plan = [base,...groups,...topics];
+    const initialLimit = maxRequests === 0 ? plan.length : Number.isFinite(maxRequests)
       ? Math.max(1,Math.min(GOOGLE_MAX_LIVE_REQUESTS,Math.floor(maxRequests)))
       : GOOGLE_DEFAULT_MAX_REQUESTS;
-    return plan.slice(0,limit);
+    return plan.slice(0,initialLimit);
   }
-  const base: GoogleRequestPlan = { category, label: "Nearby places" };
+  const base:GoogleRequestPlan = {mode:"nearby", category,label:"Nearby places"};
   if (!expanded) return [base];
   const intents = category === "all"
     ? LIVE_CATEGORY_INTENTS
-    : LIVE_CATEGORY_INTENTS.filter(intent => intent.category === category);
-  // No geographic gridding, bulk acquisition, unbounded recursion, or API abuse.
-  // Each distinct, predefined category is queried at most once.
-  const plan = [base, ...intents];
+    : LIVE_CATEGORY_INTENTS.filter(intent=>intent.category===category);
+  const plan = [base,...intents];
   if (maxRequests === 0) return plan;
   const limit = Number.isFinite(maxRequests)
-    ? Math.max(1, Math.min(GOOGLE_MAX_LIVE_REQUESTS, Math.floor(maxRequests)))
+    ? Math.max(1,Math.min(GOOGLE_MAX_LIVE_REQUESTS,Math.floor(maxRequests)))
     : GOOGLE_DEFAULT_MAX_REQUESTS;
-  return plan.slice(0, limit);
+  return plan.slice(0,limit);
+}
+
+/** Hard request budget, including follow-up Text Search pages. Zero never creates unlimited calls. */
+export function googleRequestBudget(
+  category: Category, goal: SearchGoal, expanded: boolean, configured = GOOGLE_DEFAULT_MAX_REQUESTS,
+): number {
+  if (!expanded) return 1;
+  if (goal === "it" && configured === 0) return GOOGLE_IT_AUTO_MAX_REQUESTS;
+  return googleLiveSearchPlan(category,true,configured,goal).length;
+}
+
+export function googleTextRequest(bounds: Bounds, textQuery: string, pageToken?: string) {
+  return {
+    textQuery,
+    pageSize: GOOGLE_MAX_RESULTS,
+    locationRestriction: {
+      rectangle: {
+        low: {latitude: bounds.south, longitude: bounds.west},
+        high: {latitude: bounds.north, longitude: bounds.east},
+      },
+    },
+    ...(pageToken ? {pageToken} : {}),
+  };
 }
 
 export interface GoogleLiveResult {
   businesses: Business[];
   truncated: boolean;
   requestCount: number;
+  nearbyRequestCount: number;
+  textRequestCount: number;
+  textQueryCount: number;
+  duplicatesRemoved: number;
+  targetTypes: string[];
   warning?: string;
 }
 
@@ -232,104 +284,130 @@ export async function discoverGooglePlaces(
   } = {},
 ): Promise<GoogleLiveResult> {
   const key = options.apiKey ?? process.env.GOOGLE_PLACES_API_KEY?.trim();
-  if (!key) throw new UpstreamError("Google Places API key is not configured.", 503);
+  if (!key) throw new UpstreamError("Google Places API key is not configured.",503);
   const includeContacts = options.includeContacts ??
     process.env.GOOGLE_PLACES_INCLUDE_CONTACTS === "true";
   const requestedMax = options.maxRequests ??
     Number(process.env.GOOGLE_PLACES_MAX_REQUESTS ?? GOOGLE_DEFAULT_MAX_REQUESTS);
-  const plan = googleLiveSearchPlan(category, options.expanded === true, requestedMax, options.goal);
+  const goal = options.goal ?? "general";
+  const expanded = options.expanded === true;
+  // Validate the full geographic circle before any paid requests.
+  googleSearchCircle(bounds);
+  const queue = googleLiveSearchPlan(category,expanded,requestedMax,goal);
+  const requestBudget = googleRequestBudget(category,goal,expanded,requestedMax);
   const fetcher = options.fetcher ?? fetch;
-  const found = new Map<string, Business>();
+  const found = new Map<string,Business>();
+  const textQueries = new Set<string>();
   let cursor = 0;
   let requestCount = 0;
+  let nearbyRequestCount = 0;
+  let textRequestCount = 0;
+  let rawPlaceCount = 0;
   let failedCount = 0;
   let fullCount = 0;
   let stopped = false;
   let failure: UpstreamError | null = null;
 
-  const worker = async () => {
-    while (!stopped && cursor < plan.length) {
-      const job = plan[cursor++];
+  async function worker() {
+    while (!stopped && cursor < queue.length && requestCount < requestBudget) {
+      const job = queue[cursor++];
       requestCount++;
+      const isText = job.mode === "text";
+      if (isText) {
+        textRequestCount++;
+        textQueries.add(job.textQuery);
+      } else nearbyRequestCount++;
+      const url = isText ? GOOGLE_TEXT_URL : GOOGLE_NEARBY_URL;
+      const requestBody = isText
+        ? googleTextRequest(bounds,job.textQuery,job.pageToken)
+        : googleNearbyRequest(bounds,job.category,job.types);
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 16000);
+      const timeout = setTimeout(()=>controller.abort(),16000);
       let response: Response;
       try {
-        response = await fetcher(GOOGLE_NEARBY_URL, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Goog-Api-Key": key,
-            "X-Goog-FieldMask": GOOGLE_FIELD_MASK_BASE + (includeContacts ? CONTACT_FIELDS : ""),
+        response = await fetcher(url,{
+          method:"POST",
+          headers:{
+            "Content-Type":"application/json",
+            "X-Goog-Api-Key":key,
+            "X-Goog-FieldMask": GOOGLE_FIELD_MASK_BASE +
+              (isText ? ",nextPageToken" : "") +
+              (includeContacts ? CONTACT_FIELDS : ""),
           },
-          body: JSON.stringify(googleNearbyRequest(bounds, job.category, job.types)),
-          signal: controller.signal,
-          cache: "no-store",
+          body: JSON.stringify(requestBody),
+          signal:controller.signal,
+          cache:"no-store",
         });
       } catch {
         failedCount++;
-        failure ??= new UpstreamError("Google Places did not respond.", 503);
+        failure ??= new UpstreamError("Google Places did not respond.",503);
         continue;
-      } finally {
-        clearTimeout(timeout);
-      }
+      } finally { clearTimeout(timeout); }
 
       if (!response.ok) {
         failedCount++;
-        const status = response.status === 429 ? 429 :
-          response.status === 400 ? 400 : 503;
         failure ??= new UpstreamError(
           response.status === 429
             ? "Google Places quota exhausted; additional searches stopped."
             : response.status === 401 || response.status === 403
               ? "Google Places key/billing is invalid or unauthorized."
-              : "Google Places search failed (HTTP " + response.status + ").",
-          status,
+              : "Google Places search failed (HTTP "+response.status+").",
+          response.status === 429 ? 429 : response.status === 400 ? 400 : 503,
         );
-        // Stop additional calls on quota, bad API key, or invalid request;
-        // do not retry through extra queries or change endpoints.
-        if ([400, 401, 403, 429].includes(response.status)) stopped = true;
+        if ([400,401,403,429].includes(response.status)) stopped=true;
         continue;
       }
-
-      let body: { places?: GooglePlace[] };
+      let body: {places?:GooglePlace[];nextPageToken?:string};
       try { body = await response.json(); }
       catch {
         failedCount++;
-        failure ??= new UpstreamError("Google Places returned invalid JSON.", 502);
+        failure ??= new UpstreamError("Google Places returned invalid JSON.",502);
         continue;
       }
       if (!body || typeof body !== "object" ||
           (body.places !== undefined && !Array.isArray(body.places))) {
         failedCount++;
-        failure ??= new UpstreamError("Google Places returned an unexpected response.", 502);
+        failure ??= new UpstreamError("Google Places returned an unexpected response.",502);
         continue;
       }
       const places = body.places ?? [];
+      rawPlaceCount += places.length;
       if (places.length >= GOOGLE_MAX_RESULTS) fullCount++;
-      for (const place of places) {
-        // Unique within this *live request*, not cached, saved or exported.
-        // Google Places coordinates must not be used for polygon analysis.
-        const record = googlePlaceToBusiness(place, polygon);
-        if (record) found.set(record.id, record);
+      for (const item of places) {
+        // These details remain in this transient live response; never cached or exported.
+        const result = googlePlaceToBusiness(item,polygon);
+        if (!result) continue;
+        const previous = found.get(result.id);
+        found.set(result.id, previous
+          ? {...result,website:result.website??previous.website,
+             phone:result.phone??previous.phone,
+             city:result.city??previous.city,
+             address:result.address??previous.address}
+          : result);
+      }
+      // Google Text Search may return two additional pages, up to 60 places/query.
+      // Keep one bounded topical query intact, vary only its pageToken.
+      if (isText && typeof body.nextPageToken === "string" &&
+          body.nextPageToken.length > 0 && job.pageNumber < 3 && !stopped) {
+        queue.push({...job,pageToken:body.nextPageToken,pageNumber:job.pageNumber+1});
       }
     }
-  };
+  }
 
-  // At most two simultaneous paid calls, only after the user opts in.
-  await Promise.all(Array.from({length: Math.min(2,plan.length)}, () => worker()));
+  await Promise.all(Array.from({length:Math.min(2,queue.length)},()=>worker()));
   if (failure && failedCount === requestCount) throw failure;
-  // Each Nearby call is capped at 20 and has no native pagination. No plan
-  // guarantees a full business inventory, regardless of result count.
-  const truncated = fullCount > 0 || failedCount > 0 || plan.length > 1;
+  const duplicatesRemoved = Math.max(0,rawPlaceCount-found.size);
+  const truncated = fullCount > 0 || failedCount > 0 ||
+    cursor < queue.length || queue.length > 1;
   const warning = failedCount > 0
-    ? "Only " + (requestCount - failedCount) + " of " + requestCount +
-      " Google searches succeeded. Live results are incomplete."
+    ? "Only "+(requestCount-failedCount)+" of "+requestCount+
+      " Google requests succeeded. Live results are incomplete."
     : undefined;
   return {
-    businesses: [...found.values()],
-    truncated,
-    requestCount,
-    ...(warning ? { warning } : {}),
+    businesses:[...found.values()],
+    truncated, requestCount, nearbyRequestCount,textRequestCount,
+    textQueryCount:textQueries.size,duplicatesRemoved,
+    targetTypes:goal==="it"?[...IT_EMPLOYER_TYPES]:[],
+    ...(warning ? {warning}:{ }),
   };
 }
