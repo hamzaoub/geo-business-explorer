@@ -65,10 +65,15 @@ export function polygonBounds(polygon: Position[]): Bounds {
 }
 
 function pointOnSegment(p: Position, a: Position, b: Position): boolean {
+  const len2 = (b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2;
+  // Closed rings contain a repeated first/last point. A zero-length segment
+  // must not match *every* geographic point just because its cross product is 0.
+  if (len2 < 1e-20) {
+    return Math.abs(p[0] - a[0]) < 1e-10 && Math.abs(p[1] - a[1]) < 1e-10;
+  }
   const cross = (p[1] - a[1]) * (b[0] - a[0]) - (p[0] - a[0]) * (b[1] - a[1]);
   if (Math.abs(cross) > 1e-10) return false;
   const dot = (p[0] - a[0]) * (b[0] - a[0]) + (p[1] - a[1]) * (b[1] - a[1]);
-  const len2 = (b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2;
   return dot >= -1e-10 && dot <= len2 + 1e-10;
 }
 
