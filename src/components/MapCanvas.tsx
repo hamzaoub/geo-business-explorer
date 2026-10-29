@@ -160,7 +160,10 @@ export default function MapCanvas({
     if (!map || !L || drawingRectangle) return;
     // Like a screenshot selection: press, drag, and release to define the search box.
     // Actual map coordinates (not screenshot pixels) are sent to the search API.
-    const rectangle = new L.Draw.Rectangle(map, {
+    // @types/leaflet-draw expects a DrawMap with static members on the instance;
+// at runtime Leaflet.Draw accepts the regular Leaflet map.
+    const rectangle = new L.Draw.Rectangle(
+      map as unknown as ConstructorParameters<typeof L.Draw.Rectangle>[0], {
       shapeOptions: { color: "#0f9a81", weight: 3, fillOpacity: 0.13 },
     });
     rectangleDrawRef.current = rectangle;
