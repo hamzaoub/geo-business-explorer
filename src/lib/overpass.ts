@@ -104,49 +104,141 @@ function normalizeElement(element: OsmElement, polygon: Position[]): Business | 
   };
 }
 
+/**
+ * Public Overpass servers can be busy or temporarily unreachable. Retry a failed
+ * network / 5xx response once against a different operator. Do not bypass 429
+ * rate limits, and never silently move a custom private endpoint to a public
+ * operator unless an explicit fallback is supplied.
+ */
+export function overpassEndpoints(
+  primary = process.env.OVERPASS_URL?.trim() || OVERPASS_DEFAULT,
+  fallback = process.env.OVERPASS_FALLBACK_URL?.trim(),
+): string[] {
+  const secondary = fallback === "none" ? null
+    : fallback || (primary === OVERPASS_DEFAULT
+      ? "https://overpass.private.coffee/api/interpreter" : null);
+  return secondary && secondary !== primary ? [primary, secondary] : [primary];
+}
+
+type OverpassPayload = { elements: OsmElement[]; remark?: string };
+
+export async function fetchOverpassPayload(
+  query: string,
+  options: {
+    endpoints?: string[];
+    fetcher?: typeof fetch;
+    timeoutMs?: number;
+  } = {},
+): Promise<OverpassPayload> {
+  const endpoints = options.endpoints ?? overpassEndpoints();
+  const fetcher = options.fetcher ?? fetch;
+  const timeoutMs = options.timeoutMs ?? 22_000;
+  if (!endpoints.length) throw new UpstreamError("No Overpass server configured.", 503);
+  const formData = new URLSearchParams({ data: query });
+  for (let i = 0; i < endpoints.length; i++) {
+    const endpoint = endpoints[i];
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let reason = "unreachable";
+    try {
+      const response = await fetcher(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Accept": "application/json",
+          "User-Agent": "GeoScout/0.3 (contact: " +
+            (process.env.OVERPASS_CONTACT_EMAIL || "configure-OVERPASS_CONTACT_EMAIL") + ")",
+        },
+        body: formData.toString(),
+        signal: controller.signal,
+        cache: "no-store",
+      });
+      if (response.status === 429) {
+        // Respect the server's rate limit: do not use another server to evade it.
+        throw new UpstreamError(
+          "OpenStreetMap's search service is rate limiting requests. Wait a moment and try a smaller region.",
+          429,
+        );
+      }
+      if (response.status === 400 || response.status === 422) {
+        throw new UpstreamError(
+          "The map data service rejected the query. Try a smaller region or report this error.",
+          502,
+        );
+      }
+      if (!response.ok) {
+        reason = "HTTP " + response.status;
+      } else {
+        try {
+          const body: unknown = await response.json();
+          if (body && typeof body === "object" && "elements" in body &&
+              Array.isArray((body as { elements: unknown }).elements) &&
+              (body as { elements: unknown[] }).elements.length <= 5000 &&
+              !("remark" in body &&
+                typeof (body as { remark: unknown }).remark === "string" &&
+                /(?:runtime|parse|error|timeout)/i.test(
+                  (body as { remark: string }).remark))) {
+            return body as OverpassPayload;
+          }
+          reason = "invalid or incomplete Overpass data";
+        } catch {
+          reason = "invalid JSON response";
+        }
+      }
+    } catch (error) {
+      if (error instanceof UpstreamError) throw error;
+      reason = controller.signal.aborted ? "timed out" :
+        error instanceof Error ? error.name : "network failure";
+    } finally {
+      clearTimeout(timer);
+    }
+    // Log only the operator hostname, never the selected user coordinates.
+    try {
+      console.warn("Overpass provider unavailable", {
+        host: new URL(endpoint).hostname,
+        reason,
+        fallbackRemaining: i < endpoints.length - 1,
+      });
+    } catch { console.warn("Overpass provider unavailable", { reason }); }
+  }
+  throw new UpstreamError(
+    "Both public OpenStreetMap search servers are busy or unreachable. Try a smaller area or retry later. You can also configure a dedicated Overpass server.",
+    503,
+  );
+}
+
+const CACHE_TTL_MS = 2 * 60_000;
+const queryCache = new Map<string, {
+  expiresAt: number;
+  request: Promise<OverpassPayload>;
+}>();
+
+function cachedQuery(query: string, timeoutMs: number): Promise<OverpassPayload> {
+  const now = Date.now();
+  const cached = queryCache.get(query);
+  if (cached && cached.expiresAt > now) return cached.request;
+  if (queryCache.size > 100) {
+    for (const [key, value] of queryCache) {
+      if (value.expiresAt <= now) queryCache.delete(key);
+    }
+    if (queryCache.size > 100) queryCache.clear();
+  }
+  const request = fetchOverpassPayload(query, { timeoutMs });
+  queryCache.set(query, { expiresAt: now + CACHE_TTL_MS, request });
+  // Errors must not be cached: the next attempt should be able to retry.
+  void request.catch(() => {
+    if (queryCache.get(query)?.request === request) queryCache.delete(query);
+  });
+  return request;
+}
+
 export async function discoverBusinesses(
   polygon: Position[],
   bounds: Bounds,
   category: Category,
 ): Promise<{ businesses: Business[]; truncated: boolean }> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 40_000);
-  let response: Response;
-  try {
-    response = await fetch(process.env.OVERPASS_URL || OVERPASS_DEFAULT, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "User-Agent": "GeoBusinessExplorer/0.1 (contact: " +
-          (process.env.OVERPASS_CONTACT_EMAIL || "set-OVERPASS_CONTACT_EMAIL") + ")",
-      },
-      body: new URLSearchParams({ data: buildOverpassQuery(bounds, category) }),
-      signal: controller.signal,
-      cache: "no-store",
-    });
-  } catch {
-    throw new UpstreamError("The live map data service did not respond. Please try again.", 503);
-  } finally {
-    clearTimeout(timeout);
-  }
-  if (!response.ok) {
-    const message = response.status === 429
-      ? "OpenStreetMap's public search service is rate-limiting requests. Please retry later."
-      : "The map data service is temporarily unavailable.";
-    throw new UpstreamError(message, response.status === 429 ? 429 : 502);
-  }
-  let data: { elements?: OsmElement[]; remark?: string };
-  try {
-    data = await response.json();
-  } catch {
-    throw new UpstreamError("The map data service returned an invalid response.", 502);
-  }
-  if (!Array.isArray(data.elements)) {
-    throw new UpstreamError("The map data service did not return business records.", 502);
-  }
-  if (data.remark?.toLowerCase().includes("error")) {
-    throw new UpstreamError("The map data search could not be completed.", 503);
-  }
+  const query = buildOverpassQuery(bounds, category);
+  const data = await cachedQuery(query, bounds.approximateKm2 > 150 ? 30_000 : 22_000);
   const unique = new Map<string, Business>();
   for (const element of data.elements) {
     const item = normalizeElement(element, polygon);
