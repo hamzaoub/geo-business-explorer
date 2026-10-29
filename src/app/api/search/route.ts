@@ -116,6 +116,9 @@ export async function POST(request: NextRequest) {
       if (outcome.status === "fulfilled") {
         groups.push(outcome.value.result.businesses);
         truncated = truncated || outcome.value.result.truncated;
+        if ("warning" in outcome.value.result && typeof outcome.value.result.warning === "string") {
+          warnings.push(outcome.value.result.warning);
+        }
         if (!sources.some((s) => s.name === ATTRIBUTION[outcome.value.source].name)) {
           sources.push(ATTRIBUTION[outcome.value.source]);
         }
@@ -139,8 +142,9 @@ export async function POST(request: NextRequest) {
     // or Overture and never cached by the business search implementation.
     if (provider === "google") {
       warnings.push(
-        "Google Nearby Search returns at most 20 places per request and may miss businesses. " +
-        "For licensing reasons, Google results are shown as a live list only: no export or OSM markers.",
+        "Google Nearby Search has a 20-place limit per request, with no pagination. " +
+        "These live results are not a complete business inventory and cannot be exported. " +
+        "For deeper, exportable discovery, select Geoapify Places or Overture.",
       );
     }
     const businesses = provider === "google" ? groups.flat() : mergeBusinesses(groups);

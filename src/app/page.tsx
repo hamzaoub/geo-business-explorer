@@ -86,7 +86,10 @@ export default function ExplorerPage() {
     setLoading(false);
   }
 
-  async function runSearch(selectedArea: Position[] | null = polygon) {
+  async function runSearch(
+    selectedArea: Position[] | null = polygon,
+    selectedProvider: SearchProvider = provider,
+  ) {
     if (!selectedArea) return;
     activeRequest.current?.abort();
     const controller = new AbortController();
@@ -99,7 +102,7 @@ export default function ExplorerPage() {
       const response = await fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ polygon: selectedArea, category, provider }),
+        body: JSON.stringify({ polygon: selectedArea, category, provider: selectedProvider }),
         signal: controller.signal,
       });
       const json: unknown = await response.json();
@@ -113,7 +116,7 @@ export default function ExplorerPage() {
       setTextFilter("");
       setWebsiteFilter("all");
       setPage(1);
-      setViewMode(provider === "google" ? "table" : "json");
+      setViewMode(selectedProvider === "google" ? "table" : "json");
     } catch (cause) {
       if (controller.signal.aborted || activeRequest.current !== controller) return;
       setError(cause instanceof Error ? cause.message : "Search failed.");
@@ -348,15 +351,31 @@ export default function ExplorerPage() {
               <div key={warning} className="warning-notice">{warning}</div>
             ))}
             {result?.truncated && (
-              <div className="warning-notice">Search result limit reached or a provider was unavailable. This is a partial result; select a smaller area for better coverage.</div>
+              <div className="warning-notice">
+                {result.provider === "google"
+                  ? "Google returned up to 20 ranked places; other businesses may exist. Use Geoapify for broader exportable discovery."
+                  : "The provider returned only a partial result. Use a smaller area or increase the Geoapify page allowance when appropriate."}
+              </div>
             )}
 
             {result?.provider === "google" && (
               <div className="google-places-notice">
                 <strong className="google-maps-attribution" translate="no">Google Maps</strong>
-                <span>Live Google Places results · no storage, JSON/CSV export or Google markers on the OpenStreetMap map.
+                <span>Live Google Places results · maximum 20 per query · no bulk collection or JSON/CSV export.
                   <a href="https://developers.google.com/maps/documentation/places/web-service/policies"
                     target="_blank" rel="noopener noreferrer"> View usage policies ↗</a>
+                  {geoapifyAvailable && (
+                    <button type="button" className="outline-button google-switch-provider"
+                      onClick={() => {
+                        selectProvider("geoapify");
+                        void runSearch(polygon, "geoapify");
+                      }}>
+                      Find more businesses with Geoapify ↗
+                    </button>
+                  )}
+                  {!geoapifyAvailable && (
+                    <span> Add GEOAPIFY_API_KEY to enable broader, exportable searches.</span>
+                  )}
                 </span>
               </div>
             )}
@@ -464,3 +483,4 @@ export default function ExplorerPage() {
     </div>
   );
 }
+

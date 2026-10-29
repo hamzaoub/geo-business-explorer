@@ -191,7 +191,7 @@ Public Overpass availability is not guaranteed. GeoScout now supports Geoapify's
 
 When the key is configured, Geoapify becomes the automatically selected provider. You can still choose OpenStreetMap; if public Overpass fails with a server error or timeout, GeoScout falls back to Geoapify. Rate limits (429) are not bypassed.
 
-Geoapify returns places as GeoJSON. GeoScout checks every feature against your exact selected polygon, shows names, addresses, categories and any available website/phone/email fields, and preserves source attribution in JSON/CSV exports. The first 500 places are returned; if that cap is reached, the response is explicitly marked **partial**. This is not an exhaustive company registry. Per Geoapify's terms, display **Geoapify and OpenStreetMap attribution** whenever Geoapify records are used, and comply with ODbL for OpenStreetMap-derived data. Do not publish your server-side key in client code.
+Geoapify returns places as GeoJSON. GeoScout checks every feature against your selected polygon, shows names, addresses, categories and any available website/phone/email fields, and preserves source attribution in JSON/CSV exports. **Geoapify pagination is enabled**: up to 500 places per page, and 8 pages (up to 4,000 scanned places) per selection by default. Set `GEOAPIFY_MAX_PAGES=1` through `12` in `.env.local` to control API usage. When the page cap is reached or a later page fails, the response is marked **partial** with an explanation. This is not an exhaustive company registry. Per Geoapify's terms, display **Geoapify and OpenStreetMap attribution** whenever Geoapify records are used, and comply with ODbL for OpenStreetMap-derived data. Do not publish your server-side key in client code.
 
 ## Google Places API (New) — live option
 
@@ -207,3 +207,16 @@ Nearby Search (New) uses a **circle**, not a polygon: GeoScout derives a circle 
 **Google Places data is presented in a separate live table-only view**, never as points on an OpenStreetMap map, because Google requires its Places content on Google maps if plotted on a map. GeoScout does not cache or store Google Places results, merge them with OSM records, or permit JSON/CSV downloads of Google's content. Display attribution **Google Maps** with the results. This matters because Google's Maps Platform terms restrict content storage, bulk extraction and reuse. Only place IDs have the specified caching exception. See https://developers.google.com/maps/documentation/places/web-service/policies and https://cloud.google.com/maps-platform/terms.
 
 A commercial launch will also require compliant terms/privacy pages and potentially an official Google Maps logo asset in the results view. For bulk business-lead CSV exports, keep using OSM / Overture / appropriately licensed providers, not Google Places.
+
+## Collect more than 20 businesses
+
+Google Nearby Search (New) is limited to 20 places per request, with no native pagination. Its terms restrict bulk downloads and building a reusable business database from Google results. GeoScout therefore keeps Google in a live-view-only panel.
+
+**For a bigger, exportable dataset, use Geoapify Places.** Its Places API supports `limit=500&offset=0`, `offset=500`, etc. GeoScout now automatically fetches consecutive pages, normalizes and deduplicates by place ID, and exports the records it receives. The default limit is 8 pages (up to 4,000 scanned records, with some filtered out by the drawn shape). To control API credit usage:
+```env
+GEOAPIFY_API_KEY=your-key
+GEOAPIFY_MAX_PAGES=8
+```
+Max allowed: 12 pages. Google Places results now include a **Find more businesses with Geoapify** button when Geoapify is configured. This starts a new, independent search of the same selected region, not a combination with Google content. Credits accrue on each Geoapify request, generally 1 credit up to 20 places then additional credits per 20 places returned; check your Geoapify account.
+
+Even with more pages, no Places API promises every business in a dense region. For truly large-area inventory building, use a licensed bulk dataset (e.g., Overture Maps Places) or split the target area into smaller bounds. See https://apidocs.geoapify.com/how-to/place-discovery/paginate-place-results/ .
