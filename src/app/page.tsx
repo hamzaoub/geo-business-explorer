@@ -512,14 +512,29 @@ export default function ExplorerPage() {
                 <span className="section-kicker">YOUR DISCOVERY LIST</span>
                 <h2>Business results <span className="results-count">{businesses.length}</span></h2>
               </div>
-              <div className="export-actions">
+              <div className="export-actions" aria-label="Download search results">
                 <button type="button" className="outline-button" disabled={!result || !filtered.length || result.provider === "google"}
+                  title={result?.provider === "google" ? "Google Places business details cannot be exported. Use Geoapify or OSM." : "Download every currently filtered business as JSON"}
                   onClick={() => result && exportJson(filtered, polygon, result)}>↓ JSON</button>
                 <button type="button" className="outline-button" disabled={!result || !filtered.length || result.provider === "google"}
-                  onClick={() => exportCsv(filtered)}>↓ CSV</button>
+                  title={result?.provider === "google" ? "Google Places business details cannot be exported. Use Geoapify or OSM." : "Download every currently filtered business as CSV"}
+                  onClick={() => result && exportCsv(filtered, result)}>↓ CSV</button>
               </div>
             </div>
 
+            {result && filtered.length > 0 && (
+              <div className="export-guidance" role="note">
+                {result.provider === "google" ? (
+                  <>Google Places is a live-view source; its business details cannot be downloaded.
+                    Use <strong>Geoapify Places</strong> or <strong>OpenStreetMap</strong> for an independent, exportable search of this area.</>
+                ) : (
+                  <>Export ready: <strong>{filtered.length.toLocaleString()}</strong> of
+                    {" "}<strong>{businesses.length.toLocaleString()}</strong> discovered records.
+                    JSON and CSV download <strong>all matching rows</strong>, not just the current table page.
+                    Downloading or reopening saved results does not call the API again.</>
+                )}
+              </div>
+            )}
             {result && (
               <div className="stat-row">
                 <div><strong>{businesses.length.toLocaleString()}</strong><span>Businesses found</span></div>
@@ -587,8 +602,15 @@ export default function ExplorerPage() {
                     </button>
                   )}
                   {!geoapifyAvailable && (
-                    <span> Add GEOAPIFY_API_KEY to enable broader, exportable searches.</span>
+                    <span> Add GEOAPIFY_API_KEY for broader exportable coverage, or use OpenStreetMap below.</span>
                   )}
+                  <button type="button" className="outline-button google-switch-provider"
+                    onClick={() => {
+                      selectProvider("osm");
+                      void runSearch(polygon, "osm", false, {goal:"general"});
+                    }}>
+                    Search exportable OpenStreetMap data ↗
+                  </button>
                 </span>
               </div>
             )}
