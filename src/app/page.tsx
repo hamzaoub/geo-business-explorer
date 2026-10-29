@@ -24,6 +24,7 @@ export default function ExplorerPage() {
   const [category, setCategory] = useState<Category>("all");
   const [provider, setProvider] = useState<SearchProvider>("osm");
   const [overtureAvailable, setOvertureAvailable] = useState(false);
+  const [geoapifyAvailable, setGeoapifyAvailable] = useState(false);
   const [geocoderAvailable, setGeocoderAvailable] = useState(false);
   const [placeQuery, setPlaceQuery] = useState("");
   const [locating, setLocating] = useState(false);
@@ -47,9 +48,11 @@ export default function ExplorerPage() {
     let cancelled = false;
     fetch("/api/capabilities", { cache: "no-store" })
       .then((response) => response.json())
-      .then((data: { providers?: { overture?: boolean } }) => {
+      .then((data: { providers?: { overture?: boolean; geoapify?: boolean } }) => {
         if (!cancelled) {
           setOvertureAvailable(Boolean(data.providers?.overture));
+          setGeoapifyAvailable(Boolean(data.providers?.geoapify));
+          if (data.providers?.geoapify) setProvider("geoapify");
           setGeocoderAvailable(Boolean((data as { geocoder?: boolean }).geocoder));
         }
       })
@@ -175,7 +178,7 @@ export default function ExplorerPage() {
         </div>
         <div className="topbar-right">
           <span className="nav-muted">Business intelligence, mapped.</span>
-          <span className="source-badge"><span className="source-dot" /> {provider === "both" ? "OSM + Overture" : provider === "overture" ? "Overture Maps" : "OpenStreetMap data"}</span>
+          <span className="source-badge"><span className="source-dot" /> {provider === "both" ? "OSM + Overture" : provider === "overture" ? "Overture Maps" : provider === "geoapify" ? "Geoapify Places" : "OpenStreetMap data"}</span>
         </div>
       </header>
 
@@ -223,7 +226,12 @@ export default function ExplorerPage() {
                   onChange={() => selectProvider("osm")} /> OpenStreetMap <span>Free · ready</span>
               </label>
               <label className="source-option">
-                <input type="radio" name="source" disabled={!overtureAvailable}
+                <input type="radio" name="source" disabled={!geoapifyAvailable}
+                  checked={provider === "geoapify"} onChange={() => selectProvider("geoapify")} />
+                Geoapify Places <span>{geoapifyAvailable ? "Connected · recommended" : "API key needed"}</span>
+              </label>
+              <label className="source-option">
+                <input type="radio" name="source" disabled={!overtureAvailable>
                   checked={provider === "overture"} onChange={() => selectProvider("overture")} />
                 Overture Maps <span>{overtureAvailable ? "Connected" : "Worker needed"}</span>
               </label>
@@ -402,7 +410,7 @@ export default function ExplorerPage() {
                                 onClick={(e) => e.stopPropagation()}>Visit site ↗</a>
                             : <span className="muted">Not listed</span>}</td>
                           <td><a href={business.sourceUrl} target="_blank" rel="noopener noreferrer"
-                              onClick={(e) => e.stopPropagation()}>{business.sources.map(s => s === "overture" ? "Overture" : "OSM").join(" + ")} ↗</a></td>
+                              onClick={(e) => e.stopPropagation()}>{business.sources.map(s => s === "overture" ? "Overture" : s === "geoapify" ? "Geoapify" : "OSM").join(" + ")} ↗</a></td>
                         </tr>
                       ))}
                     </tbody>

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { normalizePolygon, polygonBounds, PolygonError } from "@/lib/geo";
 import { discoverBusinesses, UpstreamError } from "@/lib/overpass";
 import { discoverOverture } from "@/lib/overture";
+import { discoverGeoapify } from "@/lib/geoapify";
 import { mergeBusinesses } from "@/lib/merge";
 import type { Category, DataAttribution, SearchProvider, SearchResponse } from "@/lib/types";
 
@@ -9,10 +10,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const CATEGORIES = new Set<Category>(["all", "food", "retail", "services", "health", "stay"]);
-const PROVIDERS = new Set<SearchProvider>(["osm", "overture", "both"]);
+const PROVIDERS = new Set<SearchProvider>(["osm", "overture", "both", "geoapify"]);
 const cooldowns = new Map<string, number>();
 
-const ATTRIBUTION: Record<"osm" | "overture", DataAttribution> = {
+const ATTRIBUTION: Record<"osm" | "overture" | "geoapify", DataAttribution> = {
   osm: {
     name: "OpenStreetMap",
     license: "ODbL 1.0",
@@ -24,6 +25,12 @@ const ATTRIBUTION: Record<"osm" | "overture", DataAttribution> = {
     license: "Source-dependent; review Overture Places licenses",
     attribution: "© Overture Maps Foundation and its data providers",
     url: "https://docs.overturemaps.org/guides/places/",
+  },
+  geoapify: {
+    name: "Geoapify Places",
+    license: "OpenStreetMap ODbL 1.0; Geoapify terms and attribution apply",
+    attribution: "Powered by Geoapify · © OpenStreetMap contributors",
+    url: "https://www.geoapify.com/terms-and-conditions/",
   },
 };
 
@@ -52,19 +59,40 @@ export async function POST(request: NextRequest) {
     const provider = (input.provider ?? "osm") as SearchProvider;
     if (!CATEGORIES.has(category)) return respondError("Unknown business category.", 400);
     if (!PROVIDERS.has(provider)) return respondError("Unknown data provider.", 400);
-    if (provider !== "osm" && !process.env.OVERTURE_SERVICE_URL) {
+    if ((provider === "overture" || provider === "both") && !process.env.OVERTURE_SERVICE_URL) {
       return respondError("Overture is not configured. Set OVERTURE_SERVICE_URL on the server.", 503);
     }
     const polygon = normalizePolygon(input.polygon);
     const bounds = polygonBounds(polygon);
-    if (provider !== "osm" && bounds.approximateKm2 > 200) {
+    if ((provider === "overture" || provider === "both") && bounds.approximateKm2 > 200) {
       return respondError("Overture preview searches are limited to 200 km². Select a smaller area or use OpenStreetMap.", 400);
     }
     cooldowns.set(key, now);
-    const requested = provider === "both" ? ["osm", "overture"] as const : [provider] as const;
-    const outcomes = await Promise.allSettled(requested.map((p) => p === "osm"
-      ? discoverBusinesses(polygon, bounds, category)
-      : discoverOverture(polygon, bounds, category)));
+    type DataProvider = "osm" | "overture" | "geoapify";
+    const requested: DataProvider[] = provider === "both" ? ["osm", "overture"] : [provider];
+    async function searchSource(p: DataProvider) {
+      if (p === "overture") {
+        return { result: await discoverOverture(polygon, bounds, category), source: p, fallback: false };
+      }
+      if (p === "geoapify") {
+        return { result: await discoverGeoapify(polygon, bounds, category), source: p, fallback: false };
+      }
+      try {
+        return { result: await discoverBusinesses(polygon, bounds, category), source: p, fallback: false };
+      } catch (error) {
+        // An independently hosted Places API can save searches when public Overpass is down.
+        // Never evade a 429 rate limit with a fallback provider.
+        if (!process.env.GEOAPIFY_API_KEY || !(error instanceof UpstreamError) || error.status === 429) {
+          throw error;
+        }
+        return {
+          result: await discoverGeoapify(polygon, bounds, category),
+          source: "geoapify" as const,
+          fallback: true,
+        };
+      }
+    }
+    const outcomes = await Promise.allSettled(requested.map(searchSource));
     const warnings: string[] = [];
     const groups = [];
     const sources: DataAttribution[] = [];
@@ -73,9 +101,14 @@ export async function POST(request: NextRequest) {
     for (let i = 0; i < outcomes.length; i++) {
       const outcome = outcomes[i];
       if (outcome.status === "fulfilled") {
-        groups.push(outcome.value.businesses);
-        truncated = truncated || outcome.value.truncated;
-        sources.push(ATTRIBUTION[requested[i]]);
+        groups.push(outcome.value.result.businesses);
+        truncated = truncated || outcome.value.result.truncated;
+        if (!sources.some((s) => s.name === ATTRIBUTION[outcome.value.source].name)) {
+          sources.push(ATTRIBUTION[outcome.value.source]);
+        }
+        if (outcome.value.fallback) warnings.push(
+          "Public Overpass was unavailable; results came from Geoapify Places.",
+        );
       } else {
         firstError ??= outcome.reason;
         warnings.push(requested[i].toUpperCase() + " data could not be retrieved.");
@@ -83,7 +116,10 @@ export async function POST(request: NextRequest) {
     }
     if (sources.length === 0) {
       const upstream = firstError instanceof UpstreamError ? firstError : null;
-      return respondError(upstream?.message || "All business data sources failed.", upstream?.status || 502);
+      const hint = provider === "osm" && !process.env.GEOAPIFY_API_KEY && upstream?.status === 503
+        ? " To use an independent search provider, add GEOAPIFY_API_KEY to .env.local and restart."
+        : "";
+      return respondError((upstream?.message || "All business data sources failed.") + hint, upstream?.status || 502);
     }
     if (warnings.length) truncated = true;
     const businesses = mergeBusinesses(groups);

@@ -184,3 +184,11 @@ For local debugging, stop and restart `npm run dev` after changing `.env.local`;
 The app displays an error when both providers fail; it never fabricates businesses. Public servers are intended for moderate, respectful use. For production reliability, deploy an indexed OSM/Overture source or use a contracted API. See the OpenStreetMap wiki's Overpass API server list.
 
 Browser extension warning messages with `contentscript.js`, `ObjectMultiplex` or `data-lt-installed` usually originate outside the application. Test in a private browser window with extensions disabled. GeoScout suppresses root-element hydration warnings but does not alter any extension.
+
+## Independent Geoapify Places provider (recommended for Overpass 503 failures)
+
+Public Overpass availability is not guaranteed. GeoScout now supports Geoapify's **Places API** with a rectangle filter, as an independent provider. A free key is available from https://myprojects.geoapify.com/ (plan limits and credit usage apply). Set **GEOAPIFY_API_KEY** in **.env.local**, then restart **npm run dev**.
+
+When the key is configured, Geoapify becomes the automatically selected provider. You can still choose OpenStreetMap; if public Overpass fails with a server error or timeout, GeoScout falls back to Geoapify. Rate limits (429) are not bypassed.
+
+Geoapify returns places as GeoJSON. GeoScout checks every feature against your exact selected polygon, shows names, addresses, categories and any available website/phone/email fields, and preserves source attribution in JSON/CSV exports. The first 500 places are returned; if that cap is reached, the response is explicitly marked **partial**. This is not an exhaustive company registry. Per Geoapify's terms, display **Geoapify and OpenStreetMap attribution** whenever Geoapify records are used, and comply with ODbL for OpenStreetMap-derived data. Do not publish your server-side key in client code.
