@@ -290,6 +290,7 @@ export async function discoverGooglePlaces(
 ): Promise<GoogleLiveResult> {
   const key = options.apiKey ?? process.env.GOOGLE_PLACES_API_KEY?.trim();
   if (!key) throw new UpstreamError("Google Places API key is not configured.",503);
+  const apiKey: string = key;
   const includeContacts = options.includeContacts ??
     process.env.GOOGLE_PLACES_INCLUDE_CONTACTS === "true";
   const requestedMax = options.maxRequests ??
@@ -334,7 +335,7 @@ export async function discoverGooglePlaces(
           method:"POST",
           headers:{
             "Content-Type":"application/json",
-            "X-Goog-Api-Key":key,
+            "X-Goog-Api-Key":apiKey,
             "X-Goog-FieldMask": GOOGLE_FIELD_MASK_BASE +
               (isText ? ",nextPageToken" : "") +
               (includeContacts ? CONTACT_FIELDS : ""),
