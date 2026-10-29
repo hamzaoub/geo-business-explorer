@@ -171,3 +171,97 @@ test("Google Places can be selected without exporting or plotting Google data on
   await expect(page.getByRole("button",{name:"↓ CSV"})).toBeEnabled();
   expect(requestedProvider).toBe("geoapify");
 });
+
+
+test("IT employer preset searches all Google employer types, and history keeps Place IDs only", async ({ page }) => {
+  await page.route("**/api/capabilities",async route=>route.fulfill({
+    status:200,contentType:"application/json",
+    body:JSON.stringify({providers:{osm:true,google:true,geoapify:false,overture:false},
+      google:{requestBudget:6,automatic:false,includeContacts:false},geocoder:false}),
+  }));
+  let received: Record<string, unknown>|null=null;
+  let calls=0;
+  await page.route("**/api/search",async route=>{
+    received=route.request().postDataJSON();
+    calls++;
+    await route.fulfill({status:200,contentType:"application/json",
+      body:JSON.stringify({
+        businesses:[{
+          id:"google/ChIJTestingOnly",name:"Software Hiring Company",
+          category:"corporate office",categoryGroup:"services",
+          website:null,phone:null,email:null,address:"Main Street",
+          city:"Toronto",location:{latitude:47.57,longitude:-52.7},
+          source:"google_places",sourceUrl:"https://www.google.com/maps/",
+          sources:["google_places"],confidence:null,
+        }],
+        count:1,truncated:false,requestCount:5,
+        searchedAt:new Date().toISOString(),provider:"google",
+        sources:[{name:"Google Maps",license:"Google Maps Platform Terms",
+          attribution:"Google Maps",url:"https://developers.google.com/maps/documentation/places/web-service/policies"}],
+        warnings:[],
+      }),
+    });
+  });
+  await page.goto("/");
+  await expect(page.locator(".leaflet-host")).toHaveClass(/leaflet-container/,{timeout:15000});
+  await page.getByRole("button",{name:/IT employers/i}).click();
+  await expect(page.locator(".target-chip-list span")).toHaveCount(16);
+  await page.getByLabel("Expanded Google live search").check();
+  const map=page.locator(".leaflet-host");
+  await map.scrollIntoViewIfNeeded();
+  const box=await map.boundingBox();
+  if (!box) throw new Error("Map missing");
+  await page.mouse.move(box.x+box.width*.2,box.y+box.height*.22);
+  await page.mouse.down();
+  await page.mouse.move(box.x+box.width*.65,box.y+box.height*.65,{steps:12});
+  await page.mouse.up();
+  await expect(page.getByText("Software Hiring Company")).toBeVisible();
+  expect(received).toMatchObject({provider:"google",goal:"it",category:"all",googleExpanded:true});
+  await expect(page.locator(".history-entry")).toHaveCount(1);
+  const stored=await page.evaluate(()=>localStorage.getItem("geoscout:search-history:v1"));
+  expect(stored).toContain("ChIJTestingOnly");
+  expect(stored).not.toContain("Software Hiring Company");
+  await page.locator(".history-entry").getByRole("button",{name:"Open"}).click();
+  await expect(page.getByText(/Saved Google Maps Place IDs/)).toBeVisible();
+  expect(calls).toBe(1);
+});
+
+test("reopening a saved OSM search avoids a second API request",async({page})=>{
+  let calls=0;
+  await page.route("**/api/search",async route=>{
+    calls++;
+    await route.fulfill({status:200,contentType:"application/json",
+      body:JSON.stringify({
+        businesses:[{
+          id:"node/4321",name:"Existing Café",category:"cafe",categoryGroup:"food",
+          website:"https://example.com",phone:null,email:null,address:"123 Harbour Road",
+          city:"St. John's",location:{latitude:47.57,longitude:-52.7},
+          source:"openstreetmap",sourceUrl:"https://www.openstreetmap.org/node/4321",
+          sources:["openstreetmap"],confidence:null,
+        }],
+        count:1,truncated:false,searchedAt:new Date().toISOString(),
+        provider:"osm",sources:[{name:"OpenStreetMap",license:"ODbL 1.0",
+          attribution:"© OpenStreetMap contributors",url:"https://www.openstreetmap.org/copyright"}],
+        warnings:[],
+      }),
+    });
+  });
+  await page.goto("/");
+  const canvas=page.locator(".leaflet-host");
+  await expect(canvas).toHaveClass(/leaflet-container/,{timeout:15000});
+  const box=await canvas.boundingBox();
+  if(!box)throw Error("map missing");
+  await page.mouse.move(box.x+box.width*.2,box.y+box.height*.2);
+  await page.mouse.down();
+  await page.mouse.move(box.x+box.width*.6,box.y+box.height*.6,{steps:10});
+  await page.mouse.up();
+  await expect(page.locator(".results-count")).toHaveText("1");
+  await expect(page.locator(".history-entry")).toHaveCount(1);
+  expect(calls).toBe(1);
+  await page.locator(".history-entry").getByRole("button",{name:"Open"}).click();
+  await expect(page.getByText(/Restored from your browser/)).toBeVisible();
+  await expect(page.getByLabel("Business search JSON preview")).toContainText("Existing Café");
+  expect(calls).toBe(1);
+  await page.locator(".history-entry").getByRole("button",{name:/Refresh/i}).click();
+  await expect.poll(()=>calls).toBe(2);
+});
