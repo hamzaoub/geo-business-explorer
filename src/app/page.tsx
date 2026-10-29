@@ -251,6 +251,7 @@ export default function ExplorerPage() {
 
   function selectGoal(next: SearchGoal) {
     cancelSearch();
+    setSavedFileName(null);
     setGoal(next);
     setResult(null);
     setError(null);
@@ -335,6 +336,7 @@ export default function ExplorerPage() {
 
   function selectCategory(next: Category) {
     cancelSearch();
+    setSavedFileName(null);
     setCategory(next);
     setResult(null);
     setError(null);
@@ -343,6 +345,7 @@ export default function ExplorerPage() {
 
   function selectProvider(next: SearchProvider) {
     cancelSearch();
+    setSavedFileName(null);
     setProvider(next);
     if (next !== "google") setGoal("general");
     setResult(null);
@@ -352,6 +355,7 @@ export default function ExplorerPage() {
 
   function changePolygon(next: Position[] | null) {
     cancelSearch();
+    setSavedFileName(null);
     setHistoryNotice(null);
     setPolygon(next);
     setResult(null);
